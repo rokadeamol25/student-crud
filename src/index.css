@@ -21,7 +21,10 @@
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.35);
   --transition: 0.2s ease;
+  --overlay: rgba(0, 0, 0, 0.5);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-color-scheme: light) {
@@ -37,6 +40,8 @@
     --danger-hover: #b91c1c;
     --border: #e2e8f0;
     --shadow: 0 4px 24px rgba(15, 23, 42, 0.08);
+    --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.15);
+    --overlay: rgba(15, 23, 42, 0.4);
   }
 }
 
