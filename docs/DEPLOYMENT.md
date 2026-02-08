@@ -1,6 +1,40 @@
 # Deployment — Multi-tenant Billing MVP
 
-## 1. Environment variables
+---
+
+## Vercel-only deployment (recommended)
+
+The repo includes an **`api/`** folder: Vercel runs these as serverless functions at **`/api/*`**. The frontend and API are on the same domain, so you don’t need a separate backend host.
+
+### 1. Environment variables (all in Vercel)
+
+In your Vercel project → **Settings** → **Environment Variables**, add:
+
+| Variable | Where | Purpose |
+|----------|--------|--------|
+| `VITE_SUPABASE_URL` | Vercel | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | Vercel | Supabase anon key (Auth) |
+| **Do not set** `VITE_API_URL` | — | So the app uses same-origin `/api` (Vercel) |
+| `SUPABASE_URL` | Vercel | Same Supabase project URL (for API) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Vercel | Service role key (for API; keep secret) |
+| `SUPABASE_JWT_SECRET` | Vercel | JWT Secret (for API; keep secret) |
+
+**Important:** Do **not** set `VITE_API_URL` in Vercel. The built app will then call `/api/...` on the same domain.
+
+### 2. Deploy
+
+1. Push the repo to GitHub and connect it to Vercel (or use the Vercel CLI).
+2. Vercel will build the frontend (Vite) and deploy each file in `api/` as a serverless function.
+3. After deploy, open **https://your-project.vercel.app/api/health** — you should see `{"status":"ok"}`.
+
+### 3. Local development with Vercel API
+
+- **Option A:** Run the Express server: `cd server && npm run dev`, and set `VITE_API_URL=http://localhost:3001` in `.env.local`.
+- **Option B:** Use `vercel dev` so Vercel runs both the frontend and the `api/` routes locally.
+
+---
+
+## 1. Environment variables (when using a separate backend)
 
 ### Frontend (Vercel)
 
@@ -8,7 +42,7 @@
 |----------|--------|
 | `VITE_SUPABASE_URL` | Supabase project URL (Auth) |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon key (Auth only; never use service role in frontend) |
-| `VITE_API_URL` | Backend API base URL (e.g. `https://your-api.railway.app`) |
+| `VITE_API_URL` | Backend API base URL (e.g. `https://your-api.railway.app`) — **only if** you use Railway/Render etc. |
 
 Set these in Vercel: Project → Settings → Environment Variables. Use the same values for Production and Preview if you use one backend.
 
@@ -90,6 +124,12 @@ For production, set `CORS_ORIGIN=https://your-app.vercel.app` (no trailing slash
 
 ## 6. Production checklist
 
+**Vercel-only:**
+- [ ] In Vercel: set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET` (and frontend `VITE_*`); do **not** set `VITE_API_URL`.
+- [ ] Supabase: migrations applied.
+- [ ] `https://your-app.vercel.app/api/health` returns `{"status":"ok"}`.
+
+**With separate backend (Railway/Render):**
 - [ ] Supabase: migrations applied; no direct client access to tenant tables from frontend (all via backend).
 - [ ] Backend: `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET` set; not logged or exposed.
 - [ ] Frontend: `VITE_API_URL` points to the deployed backend; no service role or JWT secret in frontend.
