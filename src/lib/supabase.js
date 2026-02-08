@@ -6,8 +6,9 @@ import { createClient } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_KEY;
 
-if (!url || !anonKey) {
-  throw new Error('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY) must be set');
-}
+export const supabase =
+  url && anonKey ? createClient(url, anonKey) : null;
 
-export const supabase = createClient(url, anonKey);
+export function hasSupabaseConfig() {
+  return Boolean(url && anonKey);
+}

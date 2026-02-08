@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { hasSupabaseConfig } from './lib/supabase';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -14,7 +15,25 @@ import CreateInvoice from './pages/CreateInvoice';
 import InvoicePrint from './pages/InvoicePrint';
 import './App.css';
 
+function ConfigError() {
+  return (
+    <div style={{ padding: 24, fontFamily: 'system-ui', maxWidth: 480, margin: '40px auto' }}>
+      <h1 style={{ fontSize: '1.25rem', marginBottom: 8 }}>Missing configuration</h1>
+      <p style={{ color: '#64748b', marginBottom: 16 }}>
+        Set <strong>VITE_SUPABASE_URL</strong> and <strong>VITE_SUPABASE_ANON_KEY</strong> (or VITE_SUPABASE_KEY) in your Vercel project → Settings → Environment Variables, then redeploy.
+      </p>
+    </div>
+  );
+}
+
 export default function App() {
+  if (!hasSupabaseConfig()) {
+    return (
+      <ErrorBoundary>
+        <ConfigError />
+      </ErrorBoundary>
+    );
+  }
   return (
     <ErrorBoundary>
     <AuthProvider>

@@ -31,6 +31,10 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       if (s?.access_token) {
@@ -54,12 +58,14 @@ export function AuthProvider({ children }) {
   }, [fetchMe]);
 
   const login = useCallback(async (email, password) => {
+    if (!supabase) throw new Error('Auth not configured');
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     return data;
   }, []);
 
   const signUp = useCallback(async (email, password) => {
+    if (!supabase) throw new Error('Auth not configured');
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) throw error;
     return data;
@@ -74,7 +80,7 @@ export function AuthProvider({ children }) {
   }, [session, fetchMe]);
 
   const logout = useCallback(async () => {
-    await supabase.auth.signOut();
+    if (supabase) await supabase.auth.signOut();
     setUser(null);
     setTenant(null);
   }, []);
