@@ -29,16 +29,26 @@ export async function verifyToken(token) {
 
 /** Verify token and load user row. Returns { authId, tenantId, userId } or null. */
 export async function requireAuth(req) {
+  const result = await requireAuthWithReason(req);
+  return result.auth;
+}
+
+/**
+ * Same as requireAuth but returns { auth, failCode } for diagnostics.
+ * failCode: 'token_missing' | 'token_invalid' | 'user_not_found' | null (null when auth is set).
+ */
+export async function requireAuthWithReason(req) {
   const token = getBearerToken(req);
+  if (!token) return { auth: null, failCode: 'token_missing' };
   const payload = await verifyToken(token);
-  if (!payload) return null;
+  if (!payload) return { auth: null, failCode: 'token_invalid' };
   const { data: row, error } = await supabase
     .from('users')
     .select('id, tenant_id')
     .eq('auth_id', payload.authId)
     .single();
-  if (error || !row) return null;
-  return { authId: payload.authId, tenantId: row.tenant_id, userId: row.id };
+  if (error || !row) return { auth: null, failCode: 'user_not_found' };
+  return { auth: { authId: payload.authId, tenantId: row.tenant_id, userId: row.id }, failCode: null };
 }
 
 /** For signup/complete: verify token only (no user row required). Returns { authId, email } or null. */

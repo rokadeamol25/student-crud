@@ -3,7 +3,7 @@
  * slug [] = GET/PATCH me; slug ['logo'] = POST logo.
  */
 import { supabase } from '../_lib/supabase.js';
-import { requireAuth } from '../_lib/auth.js';
+import { requireAuth, requireAuthWithReason } from '../_lib/auth.js';
 
 const BUCKET = 'tenant-assets';
 const MAX_SIZE_BYTES = 2 * 1024 * 1024;
@@ -35,8 +35,13 @@ const tenantFields = 'id, name, slug, currency, currency_symbol, gstin, tax_perc
 
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
-  const auth = await requireAuth(req);
-  if (!auth) return res.status(403).json({ error: 'User not onboarded. Complete signup first.' });
+  const { auth, failCode } = await requireAuthWithReason(req);
+  if (!auth) {
+    return res.status(403).json({
+      error: 'User not onboarded. Complete signup first.',
+      code: failCode,
+    });
+  }
 
   const slug = getSlug(req);
 

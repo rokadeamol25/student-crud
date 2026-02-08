@@ -6,7 +6,7 @@ export default function SignupComplete() {
   const [shopName, setShopName] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { session, tenant, loading, signupComplete } = useAuth();
+  const { session, tenant, loading, signupComplete, lastMeFailCode, refetchMe } = useAuth();
   const navigate = useNavigate();
 
   if (loading) {
@@ -41,11 +41,30 @@ export default function SignupComplete() {
     }
   }
 
+  const codeHelp = {
+    token_missing: 'API did not receive the login token. Check that VITE_API_URL is not set on Vercel so requests go to same origin.',
+    token_invalid: 'Token verification failed. Set SUPABASE_JWT_SECRET in Vercel (Supabase → Project Settings → API → JWT Secret). Ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY match the same project as the frontend.',
+    user_not_found: 'No user/tenant row in the backend database. Use the same Supabase project for frontend and API; run migrations and complete signup once on this deployment.',
+  };
+
   return (
     <div className="auth-page">
       <div className="auth-card">
         <h1 className="auth-card__title">Create your shop</h1>
         <p className="auth-card__subtitle">Name your shop to get started</p>
+        {lastMeFailCode && lastMeFailCode !== 'ok' && (
+          <div className="auth-form__error" style={{ marginBottom: 12, fontSize: 13 }}>
+            <strong>Backend diagnostic:</strong> <code>{lastMeFailCode}</code>
+            {codeHelp[lastMeFailCode] && (
+              <span> — {codeHelp[lastMeFailCode]}</span>
+            )}
+            <div style={{ marginTop: 8 }}>
+              <button type="button" className="btn btn--secondary" style={{ fontSize: 12 }} onClick={() => refetchMe()}>
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="auth-form__error">{error}</div>}
           <label className="auth-form__label">

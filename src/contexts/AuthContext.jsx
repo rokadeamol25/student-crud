@@ -13,17 +13,20 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [tenant, setTenant] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [lastMeFailCode, setLastMeFailCode] = useState(null);
 
   const fetchMe = useCallback(async (token, isRetry = false) => {
     if (!token) {
       setUser(null);
       setTenant(null);
+      setLastMeFailCode(null);
       return;
     }
     try {
       const data = await api.get(token, '/api/me');
       setUser(data.user || null);
       setTenant(data.tenant || null);
+      setLastMeFailCode(null);
     } catch (e) {
       // Retry once after delay (handles Vercel serverless cold start / transient failure)
       if (!isRetry && (e?.status === 403 || e?.status >= 500)) {
@@ -32,6 +35,7 @@ export function AuthProvider({ children }) {
       }
       setUser(null);
       setTenant(null);
+      setLastMeFailCode(e?.data?.code || (e?.status === 403 ? 'unknown' : null));
     }
   }, []);
 
@@ -90,6 +94,7 @@ export function AuthProvider({ children }) {
     if (supabase) await supabase.auth.signOut();
     setUser(null);
     setTenant(null);
+    setLastMeFailCode(null);
   }, []);
 
   const value = {
@@ -103,6 +108,7 @@ export function AuthProvider({ children }) {
     logout,
     token: session?.access_token || null,
     refetchMe: () => session?.access_token && fetchMe(session.access_token),
+    lastMeFailCode,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
