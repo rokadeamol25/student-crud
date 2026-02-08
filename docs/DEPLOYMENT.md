@@ -21,6 +21,13 @@ In your Vercel project → **Settings** → **Environment Variables**, add:
 
 **Important:** Do **not** set `VITE_API_URL` in Vercel. The built app will then call `/api/...` on the same domain.
 
+**Vercel showing “Add shop name” after login (works locally):** The app shows the signup screen when `/api/me` returns 403 (user not found in backend). For Vercel to behave like local:
+
+1. **Same Supabase project** — `VITE_SUPABASE_URL` and `SUPABASE_URL` must be the same project (same URL). Use one project for both local and Vercel, or your production DB will not have the same users/tenants as local.
+2. **All three server env vars** — In Vercel, set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_JWT_SECRET` (from Supabase → Project Settings → API). If `SUPABASE_JWT_SECRET` is missing, token verification can fail and the app will show signup.
+3. **Migrations and data** — Run the same migrations on the Supabase project you use in production. If you sign up on the deployed app, complete “Create your shop” once so the `users` and `tenants` rows exist.
+4. **Retry** — The app retries `/api/me` once on 403/5xx (e.g. serverless cold start). If it still fails after retry, check the three points above and Vercel function logs.
+
 ### 2. Deploy
 
 1. Push the repo to GitHub and connect it to Vercel (or use the Vercel CLI).

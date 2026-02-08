@@ -14,7 +14,7 @@ export function AuthProvider({ children }) {
   const [tenant, setTenant] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchMe = useCallback(async (token) => {
+  const fetchMe = useCallback(async (token, isRetry = false) => {
     if (!token) {
       setUser(null);
       setTenant(null);
@@ -25,6 +25,11 @@ export function AuthProvider({ children }) {
       setUser(data.user || null);
       setTenant(data.tenant || null);
     } catch (e) {
+      // Retry once after delay (handles Vercel serverless cold start / transient failure)
+      if (!isRetry && (e?.status === 403 || e?.status >= 500)) {
+        await new Promise((r) => setTimeout(r, 1500));
+        return fetchMe(token, true);
+      }
       setUser(null);
       setTenant(null);
     }
