@@ -110,6 +110,7 @@ export default function CreateInvoice() {
           </label>
         </div>
         <h3 className="invoice-form__items-title">Items</h3>
+        <div className="table-wrap invoice-form__table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -174,7 +175,8 @@ export default function CreateInvoice() {
             ))}
           </tbody>
         </table>
-        <button type="button" className="btn btn--secondary" onClick={addLine}>
+        </div>
+        <button type="button" className="btn btn--secondary invoice-form__add-line" onClick={addLine}>
           Add line
         </button>
         <p className="invoice-form__total"><strong>Total: ₹{total.toFixed(2)}</strong></p>

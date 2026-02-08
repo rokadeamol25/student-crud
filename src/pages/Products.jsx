@@ -98,24 +98,26 @@ export default function Products() {
         ) : list.length === 0 ? (
           <p className="page__muted">No products yet. Add one above.</p>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Price</th>
-                <th>Unit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.name}</td>
-                  <td>{Number(p.price).toFixed(2)}</td>
-                  <td>{p.unit || '—'}</td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Price</th>
+                  <th>Unit</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {list.map((p) => (
+                  <tr key={p.id}>
+                    <td>{p.name}</td>
+                    <td>{Number(p.price).toFixed(2)}</td>
+                    <td>{p.unit || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </div>

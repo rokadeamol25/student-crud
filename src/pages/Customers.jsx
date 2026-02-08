@@ -92,24 +92,26 @@ export default function Customers() {
         ) : list.length === 0 ? (
           <p className="page__muted">No customers yet.</p>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Phone</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((c) => (
-                <tr key={c.id}>
-                  <td>{c.name}</td>
-                  <td>{c.email || '—'}</td>
-                  <td>{c.phone || '—'}</td>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th>Phone</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {list.map((c) => (
+                  <tr key={c.id}>
+                    <td>{c.name}</td>
+                    <td>{c.email || '—'}</td>
+                    <td>{c.phone || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </div>

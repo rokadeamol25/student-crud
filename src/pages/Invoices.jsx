@@ -32,30 +32,59 @@ export default function Invoices() {
         ) : list.length === 0 ? (
           <p className="page__muted">No invoices yet. <Link to="/invoices/new">Create one</Link>.</p>
         ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Number</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th>Total</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            <div className="invoice-list-cards">
               {list.map((inv) => (
-                <tr key={inv.id}>
-                  <td>{inv.invoice_number}</td>
-                  <td>{inv.invoice_date}</td>
-                  <td><span className={`badge badge--${inv.status}`}>{inv.status}</span></td>
-                  <td>₹{Number(inv.total).toFixed(2)}</td>
-                  <td>
-                    <Link to={`/invoices/${inv.id}/print`} className="btn btn--ghost btn--sm">View / Print</Link>
-                  </td>
-                </tr>
+                <div key={inv.id} className="invoice-card">
+                  <div className="invoice-card__row">
+                    <span className="invoice-card__label">Number</span>
+                    <span className="invoice-card__value">{inv.invoice_number}</span>
+                  </div>
+                  <div className="invoice-card__row">
+                    <span className="invoice-card__label">Date</span>
+                    <span className="invoice-card__value">{inv.invoice_date}</span>
+                  </div>
+                  <div className="invoice-card__row">
+                    <span className="invoice-card__label">Status</span>
+                    <span className={`badge badge--${inv.status}`}>{inv.status}</span>
+                  </div>
+                  <div className="invoice-card__row">
+                    <span className="invoice-card__label">Total</span>
+                    <span className="invoice-card__value">₹{Number(inv.total).toFixed(2)}</span>
+                  </div>
+                  <Link to={`/invoices/${inv.id}/print`} className="btn btn--primary invoice-card__action">
+                    View / Print
+                  </Link>
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+            <div className="invoice-list-table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Number</th>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th>Total</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((inv) => (
+                    <tr key={inv.id}>
+                      <td>{inv.invoice_number}</td>
+                      <td>{inv.invoice_date}</td>
+                      <td><span className={`badge badge--${inv.status}`}>{inv.status}</span></td>
+                      <td>₹{Number(inv.total).toFixed(2)}</td>
+                      <td>
+                        <Link to={`/invoices/${inv.id}/print`} className="btn btn--ghost btn--sm">View / Print</Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
