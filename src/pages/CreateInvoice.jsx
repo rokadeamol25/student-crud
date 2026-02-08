@@ -110,72 +110,131 @@ export default function CreateInvoice() {
           </label>
         </div>
         <h3 className="invoice-form__items-title">Items</h3>
-        <div className="table-wrap invoice-form__table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Product (optional)</th>
-              <th>Description</th>
-              <th>Qty</th>
-              <th>Unit price</th>
-              <th>Amount</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((it, i) => (
-              <tr key={i}>
-                <td>
-                  <select
-                    className="form__input form__input--sm"
-                    value={it.productId}
-                    onChange={(e) => updateLine(i, 'productId', e.target.value)}
-                  >
-                    <option value="">—</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>{p.name} — ₹{Number(p.price).toFixed(2)}</option>
-                    ))}
-                  </select>
-                </td>
-                <td>
+
+        {/* Mobile: card-based line items */}
+        <div className="invoice-items-cards">
+          {items.map((it, i) => (
+            <div key={i} className="invoice-item-card">
+              <label className="form__label">
+                <span>Product (optional)</span>
+                <select
+                  className="form__input"
+                  value={it.productId}
+                  onChange={(e) => updateLine(i, 'productId', e.target.value)}
+                >
+                  <option value="">—</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name} — ₹{Number(p.price).toFixed(2)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="form__label">
+                <span>Description</span>
+                <input
+                  className="form__input"
+                  value={it.description}
+                  onChange={(e) => updateLine(i, 'description', e.target.value)}
+                  placeholder="Description"
+                />
+              </label>
+              <div className="invoice-item-card__row">
+                <label className="form__label" style={{ flex: 1 }}>
+                  <span>Qty</span>
                   <input
-                    className="form__input form__input--sm"
-                    value={it.description}
-                    onChange={(e) => updateLine(i, 'description', e.target.value)}
-                    placeholder="Description"
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    className="form__input form__input--sm form__input--narrow"
+                    type="number" min="0.01" step="0.01"
+                    className="form__input"
                     value={it.quantity}
                     onChange={(e) => updateLine(i, 'quantity', e.target.value)}
                   />
-                </td>
-                <td>
+                </label>
+                <label className="form__label" style={{ flex: 1 }}>
+                  <span>Unit price</span>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="form__input form__input--sm form__input--narrow"
+                    type="number" min="0" step="0.01"
+                    className="form__input"
                     value={it.unitPrice}
                     onChange={(e) => updateLine(i, 'unitPrice', e.target.value)}
                   />
-                </td>
-                <td>₹{((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)).toFixed(2)}</td>
-                <td>
-                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </label>
+              </div>
+              <div className="invoice-item-card__footer">
+                <span className="invoice-item-card__amount">
+                  ₹{((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)).toFixed(2)}
+                </span>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
+
+        {/* Tablet+: table-based line items */}
+        <div className="invoice-items-table">
+          <div className="table-wrap invoice-form__table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Product (optional)</th>
+                  <th>Description</th>
+                  <th>Qty</th>
+                  <th>Unit price</th>
+                  <th>Amount</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it, i) => (
+                  <tr key={i}>
+                    <td>
+                      <select
+                        className="form__input form__input--sm"
+                        value={it.productId}
+                        onChange={(e) => updateLine(i, 'productId', e.target.value)}
+                      >
+                        <option value="">—</option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name} — ₹{Number(p.price).toFixed(2)}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        className="form__input form__input--sm"
+                        value={it.description}
+                        onChange={(e) => updateLine(i, 'description', e.target.value)}
+                        placeholder="Description"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number" min="0.01" step="0.01"
+                        className="form__input form__input--sm form__input--narrow"
+                        value={it.quantity}
+                        onChange={(e) => updateLine(i, 'quantity', e.target.value)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number" min="0" step="0.01"
+                        className="form__input form__input--sm form__input--narrow"
+                        value={it.unitPrice}
+                        onChange={(e) => updateLine(i, 'unitPrice', e.target.value)}
+                      />
+                    </td>
+                    <td>₹{((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)).toFixed(2)}</td>
+                    <td>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <button type="button" className="btn btn--secondary invoice-form__add-line" onClick={addLine}>
           Add line
         </button>
