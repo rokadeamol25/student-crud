@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 
 const STATUS_OPTIONS = [
@@ -12,22 +13,36 @@ const STATUS_OPTIONS = [
 
 export default function Invoices() {
   const { token } = useAuth();
+  const { showToast } = useToast();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
-  useEffect(() => {
+  const fetchList = useCallback(() => {
     if (!token) return;
-    setLoading(true);
     const url = statusFilter
       ? `/api/invoices?status=${encodeURIComponent(statusFilter)}`
       : '/api/invoices';
-    api.get(token, url)
-      .then(setList)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    return api.get(token, url).then(setList).catch((e) => setError(e.message));
   }, [token, statusFilter]);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    fetchList().finally(() => setLoading(false));
+  }, [token, statusFilter, fetchList]);
+
+  async function handleDelete(inv) {
+    if (!window.confirm(`Delete draft invoice ${inv.invoice_number}?`)) return;
+    try {
+      await api.del(token, `/api/invoices/${inv.id}`);
+      setList((prev) => prev.filter((i) => i.id !== inv.id));
+      showToast('Draft invoice deleted', 'success');
+    } catch (e) {
+      showToast(e.message || 'Failed to delete', 'error');
+    }
+  }
 
   return (
     <div className="page">
@@ -74,9 +89,21 @@ export default function Invoices() {
                     <span className="invoice-card__label">Total</span>
                     <span className="invoice-card__value">₹{Number(inv.total).toFixed(2)}</span>
                   </div>
-                  <Link to={`/invoices/${inv.id}/print`} className="btn btn--primary invoice-card__action">
-                    View / Print
-                  </Link>
+                  <div className="invoice-card__actions">
+                    {inv.status === 'draft' && (
+                      <>
+                        <Link to={`/invoices/${inv.id}/edit`} className="btn btn--secondary invoice-card__action">
+                          Edit
+                        </Link>
+                        <button type="button" className="btn btn--ghost btn--danger invoice-card__action" onClick={() => handleDelete(inv)}>
+                          Delete
+                        </button>
+                      </>
+                    )}
+                    <Link to={`/invoices/${inv.id}/print`} className="btn btn--primary invoice-card__action">
+                      View / Print
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>
@@ -99,7 +126,15 @@ export default function Invoices() {
                       <td><span className={`badge badge--${inv.status}`}>{inv.status}</span></td>
                       <td>₹{Number(inv.total).toFixed(2)}</td>
                       <td>
-                        <Link to={`/invoices/${inv.id}/print`} className="btn btn--ghost btn--sm">View / Print</Link>
+                        <span className="table-actions">
+                          {inv.status === 'draft' && (
+                            <>
+                              <Link to={`/invoices/${inv.id}/edit`} className="btn btn--ghost btn--sm">Edit</Link>
+                              <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => handleDelete(inv)}>Delete</button>
+                            </>
+                          )}
+                          <Link to={`/invoices/${inv.id}/print`} className="btn btn--ghost btn--sm">View / Print</Link>
+                        </span>
                       </td>
                     </tr>
                   ))}

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
@@ -10,12 +10,14 @@ import * as api from '../api/client';
  */
 export default function InvoicePrint() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchInvoice = useCallback(() => {
     if (!token || !id) return;
@@ -43,6 +45,20 @@ export default function InvoicePrint() {
     }
   }
 
+  async function handleDelete() {
+    if (!window.confirm('Delete this draft invoice? This cannot be undone.')) return;
+    setDeleting(true);
+    try {
+      await api.del(token, `/api/invoices/${id}`);
+      showToast('Draft invoice deleted', 'success');
+      navigate('/invoices');
+    } catch (e) {
+      showToast(e.message || 'Failed to delete', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (loading) return <div className="page"><p className="page__muted">Loading invoice…</p></div>;
   if (error || !invoice) {
     return (
@@ -62,6 +78,14 @@ export default function InvoicePrint() {
         <Link to="/invoices" className="btn btn--secondary">← Invoices</Link>
         <div className="invoice-print__status-actions">
           <span className="invoice-print__status-label">Status: <strong>{invoice.status}</strong></span>
+          {invoice.status === 'draft' && (
+            <>
+              <Link to={`/invoices/${id}/edit`} className="btn btn--secondary">Edit</Link>
+              <button type="button" className="btn btn--ghost btn--danger" onClick={handleDelete} disabled={deleting}>
+                {deleting ? 'Deleting…' : 'Delete draft'}
+              </button>
+            </>
+          )}
           {invoice.status === 'draft' && (
             <button type="button" className="btn btn--secondary" onClick={() => handleStatusUpdate('sent')} disabled={statusUpdating}>
               {statusUpdating ? 'Updating…' : 'Mark as Sent'}

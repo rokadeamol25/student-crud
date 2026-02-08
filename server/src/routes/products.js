@@ -67,4 +67,74 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+router.get('/:id', async (req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('tenant_id', req.tenantId)
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Product not found' });
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const updates = {};
+    if (body.name !== undefined) {
+      const name = (body.name ?? '').toString().trim();
+      if (!name) return res.status(400).json({ error: 'name is required' });
+      if (name.length > 500) return res.status(400).json({ error: 'name too long' });
+      updates.name = name;
+    }
+    if (body.price !== undefined) {
+      const price = Number(body.price);
+      if (Number.isNaN(price) || price < 0) return res.status(400).json({ error: 'price must be >= 0' });
+      updates.price = price;
+    }
+    if (body.unit !== undefined) {
+      updates.unit = (body.unit ?? '').toString().trim().slice(0, 50) || null;
+    }
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
+    const { data, error } = await supabase
+      .from('products')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('tenant_id', req.tenantId)
+      .select()
+      .single();
+    if (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Failed to update product' });
+    }
+    if (!data) return res.status(404).json({ error: 'Product not found' });
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:id', async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const { data: used } = await supabase.from('invoice_items').select('id').eq('product_id', id).limit(1);
+    if (used && used.length > 0) {
+      return res.status(409).json({ error: 'Cannot delete: product is used in invoices' });
+    }
+    const { error } = await supabase.from('products').delete().eq('id', id).eq('tenant_id', req.tenantId);
+    if (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Failed to delete product' });
+    }
+    return res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;

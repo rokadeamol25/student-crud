@@ -65,6 +65,18 @@
   font-size: 0.875rem;
   word-break: break-word;
 }
+.auth-form__success {
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: rgba(45, 212, 191, 0.15);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: 0.9375rem;
+}
+.auth-form__forgot {
+  margin: -0.25rem 0 0.75rem 0;
+}
+.auth-form__forgot .btn { padding: 0.25rem 0; font-size: 0.875rem; min-height: auto; }
 .auth-form__label {
   display: flex;
   flex-direction: column;
@@ -465,9 +477,16 @@
 .invoice-card__row:last-of-type { margin-bottom: 0.75rem; }
 .invoice-card__label { color: var(--text-muted); flex-shrink: 0; }
 .invoice-card__value { font-weight: 500; text-align: right; }
+.invoice-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
 .invoice-card__action {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   text-align: center;
   min-height: 2.75rem;
   padding: 0.75rem 1rem;

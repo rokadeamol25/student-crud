@@ -35,24 +35,26 @@ export function AuthProvider({ children }) {
       setLoading(false);
       return;
     }
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       setSession(s);
       if (s?.access_token) {
-        fetchMe(s.access_token);
+        await fetchMe(s.access_token);
       } else {
         setUser(null);
         setTenant(null);
       }
       setLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
       setSession(s);
       if (s?.access_token) {
-        fetchMe(s.access_token);
+        setLoading(true);
+        await fetchMe(s.access_token);
       } else {
         setUser(null);
         setTenant(null);
       }
+      setLoading(false);
     });
     return () => subscription.unsubscribe();
   }, [fetchMe]);

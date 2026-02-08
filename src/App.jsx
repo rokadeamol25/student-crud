@@ -13,7 +13,9 @@ import Products from './pages/Products';
 import Customers from './pages/Customers';
 import Invoices from './pages/Invoices';
 import CreateInvoice from './pages/CreateInvoice';
+import EditInvoice from './pages/EditInvoice';
 import InvoicePrint from './pages/InvoicePrint';
+import Settings from './pages/Settings';
 import './App.css';
 
 function ConfigError() {
@@ -57,7 +59,9 @@ export default function App() {
             <Route path="customers" element={<Customers />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="invoices/new" element={<CreateInvoice />} />
+            <Route path="invoices/:id/edit" element={<EditInvoice />} />
             <Route path="invoices/:id/print" element={<InvoicePrint />} />
+            <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

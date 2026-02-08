@@ -66,4 +66,51 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+router.get('/:id', async (req, res, next) => {
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('tenant_id', req.tenantId)
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Customer not found' });
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const updates = {};
+    if (body.name !== undefined) {
+      const name = (body.name ?? '').toString().trim();
+      if (!name) return res.status(400).json({ error: 'name is required' });
+      if (name.length > 500) return res.status(400).json({ error: 'name too long' });
+      updates.name = name;
+    }
+    if (body.email !== undefined) updates.email = (body.email ?? '').toString().trim().slice(0, 255) || null;
+    if (body.phone !== undefined) updates.phone = (body.phone ?? '').toString().trim().slice(0, 50) || null;
+    if (body.address !== undefined) updates.address = (body.address ?? '').toString().trim().slice(0, 1000) || null;
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
+    const { data, error } = await supabase
+      .from('customers')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('tenant_id', req.tenantId)
+      .select()
+      .single();
+    if (error) {
+      console.error(error);
+      return res.status(500).json({ error: 'Failed to update customer' });
+    }
+    if (!data) return res.status(404).json({ error: 'Customer not found' });
+    return res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
