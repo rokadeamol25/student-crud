@@ -253,6 +253,16 @@
   max-width: none;
   min-height: 2.75rem;
 }
+.page__filter {
+  width: 100%;
+  max-width: none;
+  min-height: 2.75rem;
+}
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
 .page__error {
   padding: 0.75rem;
   margin-bottom: 1rem;
@@ -520,6 +530,14 @@
   margin-bottom: 1rem;
 }
 .invoice-print-actions .btn { width: 100%; min-height: 2.75rem; }
+.invoice-print__status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.invoice-print__status-label { font-size: 0.9375rem; color: var(--text-muted); margin-right: 0.25rem; }
+.invoice-print__status-label strong { color: var(--text); }
 .invoice-print {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -699,6 +717,7 @@
     min-height: 2.5rem;
   }
   .page__search { max-width: 16rem; }
+  .page__filter { max-width: 10rem; }
 
   .card { padding: 1.25rem; }
   .card__heading { font-size: 1.0625rem; }
@@ -730,8 +749,9 @@
   .invoice-form__add-line { width: auto; }
 
   .invoice-print-wrap { padding: 1.5rem; max-width: 48rem; margin: 0 auto; }
-  .invoice-print-actions { flex-direction: row; }
+  .invoice-print-actions { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
   .invoice-print-actions .btn { width: auto; }
+  .invoice-print__status-actions { margin-right: auto; }
   .invoice-print { padding: 1.5rem; }
   .invoice-print__header {
     flex-direction: row;
@@ -776,6 +796,7 @@
 
   .page__title { font-size: 1.5rem; }
   .page__search { max-width: 18rem; }
+  .page__filter { max-width: 10rem; }
 
   .card { padding: 1.5rem 1.75rem; }
   .card__heading { font-size: 1.125rem; }

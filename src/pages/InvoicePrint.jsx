@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 
 /**
@@ -10,17 +11,37 @@ import * as api from '../api/client';
 export default function InvoicePrint() {
   const { id } = useParams();
   const { token, tenant } = useAuth();
+  const { showToast } = useToast();
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [statusUpdating, setStatusUpdating] = useState(false);
+
+  const fetchInvoice = useCallback(() => {
+    if (!token || !id) return;
+    return api.get(token, `/api/invoices/${id}`)
+      .then(setInvoice)
+      .catch((e) => setError(e.message));
+  }, [token, id]);
 
   useEffect(() => {
     if (!token || !id) return;
-    api.get(token, `/api/invoices/${id}`)
-      .then(setInvoice)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [token, id]);
+    setLoading(true);
+    fetchInvoice().finally(() => setLoading(false));
+  }, [token, id, fetchInvoice]);
+
+  async function handleStatusUpdate(newStatus) {
+    setStatusUpdating(true);
+    try {
+      await api.patch(token, `/api/invoices/${id}`, { status: newStatus });
+      await fetchInvoice();
+      showToast(newStatus === 'sent' ? 'Marked as sent' : 'Marked as paid', 'success');
+    } catch (e) {
+      showToast(e.message || 'Failed to update status', 'error');
+    } finally {
+      setStatusUpdating(false);
+    }
+  }
 
   if (loading) return <div className="page"><p className="page__muted">Loading invoice…</p></div>;
   if (error || !invoice) {
@@ -39,6 +60,19 @@ export default function InvoicePrint() {
     <div className="invoice-print-wrap">
       <div className="invoice-print-actions no-print">
         <Link to="/invoices" className="btn btn--secondary">← Invoices</Link>
+        <div className="invoice-print__status-actions">
+          <span className="invoice-print__status-label">Status: <strong>{invoice.status}</strong></span>
+          {invoice.status === 'draft' && (
+            <button type="button" className="btn btn--secondary" onClick={() => handleStatusUpdate('sent')} disabled={statusUpdating}>
+              {statusUpdating ? 'Updating…' : 'Mark as Sent'}
+            </button>
+          )}
+          {(invoice.status === 'draft' || invoice.status === 'sent') && (
+            <button type="button" className="btn btn--primary" onClick={() => handleStatusUpdate('paid')} disabled={statusUpdating}>
+              {statusUpdating ? 'Updating…' : 'Mark as Paid'}
+            </button>
+          )}
+        </div>
         <button type="button" className="btn btn--primary" onClick={() => window.print()}>
           Print / Save as PDF
         </button>

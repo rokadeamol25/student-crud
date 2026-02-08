@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 
 const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0 });
 
 export default function CreateInvoice() {
   const { token } = useAuth();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -70,6 +72,7 @@ export default function CreateInvoice() {
         })),
       };
       const inv = await api.post(token, '/api/invoices', payload);
+      showToast('Invoice created', 'success');
       navigate(`/invoices/${inv.id}/print`);
     } catch (e) {
       setError(e.message || e.data?.error || 'Failed to create invoice');

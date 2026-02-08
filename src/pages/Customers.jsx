@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 
 export default function Customers() {
   const { token } = useAuth();
+  const { showToast } = useToast();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -13,6 +15,12 @@ export default function Customers() {
   const [address, setAddress] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -28,7 +36,7 @@ export default function Customers() {
     setError('');
     setSubmitting(true);
     try {
-      await api.post(token, '/api/customers', {
+      const data = await api.post(token, '/api/customers', {
         name: name.trim(),
         email: email.trim() || undefined,
         phone: phone.trim() || undefined,
@@ -38,11 +46,45 @@ export default function Customers() {
       setEmail('');
       setPhone('');
       setAddress('');
-      api.get(token, `/api/customers${search ? `?q=${encodeURIComponent(search)}` : ''}`).then(setList);
+      setList((prev) => [data, ...prev]);
+      showToast('Customer added', 'success');
     } catch (e) {
       setError(e.message || 'Failed to add');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  function openEdit(c) {
+    setEditing(c);
+    setEditName(c.name);
+    setEditEmail(c.email || '');
+    setEditPhone(c.phone || '');
+    setEditAddress(c.address || '');
+  }
+
+  function closeEdit() {
+    setEditing(null);
+  }
+
+  async function handleEditSubmit(e) {
+    e.preventDefault();
+    if (!editing) return;
+    setEditSubmitting(true);
+    try {
+      const data = await api.patch(token, `/api/customers/${editing.id}`, {
+        name: editName.trim(),
+        email: editEmail.trim() || undefined,
+        phone: editPhone.trim() || undefined,
+        address: editAddress.trim() || undefined,
+      });
+      setList((prev) => prev.map((c) => (c.id === data.id ? data : c)));
+      closeEdit();
+      showToast('Customer updated', 'success');
+    } catch (e) {
+      setError(e.message || 'Failed to update');
+    } finally {
+      setEditSubmitting(false);
     }
   }
 
@@ -99,6 +141,7 @@ export default function Customers() {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Phone</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -107,6 +150,11 @@ export default function Customers() {
                     <td>{c.name}</td>
                     <td>{c.email || '—'}</td>
                     <td>{c.phone || '—'}</td>
+                    <td>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(c)}>
+                        Edit
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -114,6 +162,40 @@ export default function Customers() {
           </div>
         )}
       </section>
+
+      {editing && (
+        <div className="modal-backdrop" onClick={closeEdit}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal__title">Edit customer</h2>
+            <form onSubmit={handleEditSubmit}>
+              <label className="form__label">
+                <span>Name</span>
+                <input className="form__input" value={editName} onChange={(e) => setEditName(e.target.value)} required />
+              </label>
+              <label className="form__label">
+                <span>Email</span>
+                <input type="email" className="form__input" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+              </label>
+              <label className="form__label">
+                <span>Phone</span>
+                <input type="tel" className="form__input" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+              </label>
+              <label className="form__label">
+                <span>Address</span>
+                <textarea className="form__input" rows={2} value={editAddress} onChange={(e) => setEditAddress(e.target.value)} />
+              </label>
+              <div className="modal__actions">
+                <button type="button" className="btn btn--secondary" onClick={closeEdit}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn--primary" disabled={editSubmitting}>
+                  {editSubmitting ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

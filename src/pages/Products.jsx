@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 
 export default function Products() {
   const { token } = useAuth();
+  const { showToast } = useToast();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -12,6 +14,11 @@ export default function Products() {
   const [unit, setUnit] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [editing, setEditing] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editUnit, setEditUnit] = useState('');
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -36,6 +43,7 @@ export default function Products() {
       setPrice('');
       setUnit('');
       setList((prev) => [data, ...prev]);
+      showToast('Product added', 'success');
     } catch (e) {
       setError(e.message || 'Failed to add');
     } finally {
@@ -43,8 +51,54 @@ export default function Products() {
     }
   }
 
-  function fetchList() {
-    api.get(token, `/api/products${search ? `?q=${encodeURIComponent(search)}` : ''}`).then(setList);
+  function openEdit(p) {
+    setEditing(p);
+    setEditName(p.name);
+    setEditPrice(String(p.price));
+    setEditUnit(p.unit || '');
+  }
+
+  function closeEdit() {
+    setEditing(null);
+    setEditName('');
+    setEditPrice('');
+    setEditUnit('');
+  }
+
+  async function handleEditSubmit(e) {
+    e.preventDefault();
+    if (!editing) return;
+    setEditSubmitting(true);
+    try {
+      const data = await api.patch(token, `/api/products/${editing.id}`, {
+        name: editName.trim(),
+        price: parseFloat(editPrice, 10) ?? 0,
+        unit: editUnit.trim() || undefined,
+      });
+      setList((prev) => prev.map((p) => (p.id === data.id ? data : p)));
+      closeEdit();
+      showToast('Product updated', 'success');
+    } catch (e) {
+      setError(e.message || 'Failed to update');
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  async function handleDelete(p) {
+    if (!window.confirm(`Delete "${p.name}"?`)) return;
+    setError('');
+    try {
+      await api.del(token, `/api/products/${p.id}`);
+      setList((prev) => prev.filter((x) => x.id !== p.id));
+      showToast('Product deleted', 'success');
+    } catch (e) {
+      if (e.status === 409) {
+        showToast(e.message || 'Cannot delete: product is used in invoices', 'error');
+      } else {
+        setError(e.message || 'Failed to delete');
+      }
+    }
   }
 
   return (
@@ -105,6 +159,7 @@ export default function Products() {
                   <th>Name</th>
                   <th>Price</th>
                   <th>Unit</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -113,6 +168,16 @@ export default function Products() {
                     <td>{p.name}</td>
                     <td>{Number(p.price).toFixed(2)}</td>
                     <td>{p.unit || '—'}</td>
+                    <td>
+                      <span className="table-actions">
+                        <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(p)}>
+                          Edit
+                        </button>
+                        <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => handleDelete(p)}>
+                          Delete
+                        </button>
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -120,6 +185,53 @@ export default function Products() {
           </div>
         )}
       </section>
+
+      {editing && (
+        <div className="modal-backdrop" onClick={closeEdit}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal__title">Edit product</h2>
+            <form onSubmit={handleEditSubmit}>
+              <label className="form__label">
+                <span>Name</span>
+                <input
+                  className="form__input"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="form__label">
+                <span>Price</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="form__input"
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="form__label">
+                <span>Unit (e.g. pc, kg)</span>
+                <input
+                  className="form__input"
+                  value={editUnit}
+                  onChange={(e) => setEditUnit(e.target.value)}
+                />
+              </label>
+              <div className="modal__actions">
+                <button type="button" className="btn btn--secondary" onClick={closeEdit}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn--primary" disabled={editSubmitting}>
+                  {editSubmitting ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

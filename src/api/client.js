@@ -42,6 +42,9 @@ export function post(token, path, body) {
 export function put(token, path, body) {
   return api(token, path, { method: 'PUT', body });
 }
+export function patch(token, path, body) {
+  return api(token, path, { method: 'PATCH', body });
+}
 export function del(token, path) {
   return api(token, path, { method: 'DELETE' });
 }

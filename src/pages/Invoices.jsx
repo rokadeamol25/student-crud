@@ -3,24 +3,46 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../api/client';
 
+const STATUS_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'sent', label: 'Sent' },
+  { value: 'paid', label: 'Paid' },
+];
+
 export default function Invoices() {
   const { token } = useAuth();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   useEffect(() => {
     if (!token) return;
-    api.get(token, '/api/invoices')
+    setLoading(true);
+    const url = statusFilter
+      ? `/api/invoices?status=${encodeURIComponent(statusFilter)}`
+      : '/api/invoices';
+    api.get(token, url)
       .then(setList)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, statusFilter]);
 
   return (
     <div className="page">
       <h1 className="page__title">Invoices</h1>
       <div className="page__toolbar">
+        <select
+          className="form__input page__filter"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          aria-label="Filter by status"
+        >
+          {STATUS_OPTIONS.map((opt) => (
+            <option key={opt.value || 'all'} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
         <Link to="/invoices/new" className="btn btn--primary">
           New invoice
         </Link>
