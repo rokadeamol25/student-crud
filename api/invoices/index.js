@@ -1,5 +1,5 @@
-import { supabase } from '../../_lib/supabase.js';
-import { requireAuth } from '../../_lib/auth.js';
+import { supabase } from '../_lib/supabase.js';
+import { requireAuth } from '../_lib/auth.js';
 
 async function nextInvoiceNumber(tenantId) {
   const { data: rows } = await supabase.from('invoices').select('invoice_number').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(1000);
@@ -23,14 +23,29 @@ function validateItem(item, index) {
   return { description: desc, quantity: qty, unit_price: unitPrice };
 }
 
+function parseBody(req) {
+  const raw = req.body;
+  if (raw == null) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 export default async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
-  const auth = await requireAuth(req);
-  if (!auth) return res.status(403).json({ error: 'User not onboarded. Complete signup first.' });
-  const tenantId = auth.tenantId;
+  try {
+    const auth = await requireAuth(req);
+    if (!auth) return res.status(403).json({ error: 'User not onboarded. Complete signup first.' });
+    const tenantId = auth.tenantId;
 
-  if (req.method === 'POST') {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    if (req.method === 'POST') {
+      const body = parseBody(req);
     const customerId = (body.customerId ?? body.customer_id ?? '').toString().trim();
     if (!customerId) return res.status(400).json({ error: 'customerId is required' });
     const invoiceDate = (body.invoiceDate ?? body.invoice_date ?? '').toString().trim();
@@ -92,26 +107,30 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Failed to create invoice items' });
       }
     }
-    const { data: itemsData } = await supabase.from('invoice_items').select('*').eq('invoice_id', invoice.id).order('created_at');
-    return res.status(201).json({ ...invoice, invoice_items: itemsData || [] });
-  }
-
-  if (req.method === 'GET') {
-    let q = supabase.from('invoices').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
-    const status = (req.query?.status ?? '').toString().trim();
-    if (status) q = q.eq('status', status);
-    const customerId = (req.query?.customerId ?? '').toString().trim();
-    if (customerId) q = q.eq('customer_id', customerId);
-    const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 100);
-    const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
-    q = q.range(offset, offset + limit - 1);
-    const { data, error } = await q;
-    if (error) {
-      console.error(error);
-      return res.status(500).json({ error: 'Failed to list invoices' });
+      const { data: itemsData } = await supabase.from('invoice_items').select('*').eq('invoice_id', invoice.id).order('created_at');
+      return res.status(201).json({ ...invoice, invoice_items: itemsData || [] });
     }
-    return res.json(data || []);
-  }
 
-  return res.status(405).json({ error: 'Method not allowed' });
+    if (req.method === 'GET') {
+      let q = supabase.from('invoices').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
+      const status = (req.query?.status ?? '').toString().trim();
+      if (status) q = q.eq('status', status);
+      const customerId = (req.query?.customerId ?? '').toString().trim();
+      if (customerId) q = q.eq('customer_id', customerId);
+      const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 100);
+      const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
+      q = q.range(offset, offset + limit - 1);
+      const { data, error } = await q;
+      if (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to list invoices' });
+      }
+      return res.json(data || []);
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+  } catch (err) {
+    console.error('Invoices handler error:', err);
+    return res.status(500).json({ error: err.message || 'A server error has occurred' });
+  }
 }
