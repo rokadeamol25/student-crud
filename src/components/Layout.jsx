@@ -54,6 +54,7 @@ export default function Layout() {
           <Link to="/customers">Customers</Link>
           <Link to="/invoices">Invoices</Link>
           <Link to="/invoices/new">New invoice</Link>
+          <Link to="/reports">Reports</Link>
           <Link to="/settings">Settings</Link>
           <button type="button" className="btn btn--ghost btn--sm" onClick={handleLogout}>
             Log out
