@@ -1,16 +1,68 @@
-# React + Vite
+# Multi-tenant Billing MVP
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+One app, multiple shops. Each shop’s data is isolated by tenant. Tech: **React (Vite)** + **Node (Express)** + **PostgreSQL (Supabase)**. Target: small shop owners (India); simple invoice generation (no GST in MVP).
 
-Currently, two official plugins are available:
+## What’s in this repo
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Frontend** (root): React app — auth (Supabase), dashboard, products, customers, invoices, print view.
+- **Backend** (`server/`): Express API — JWT validation, tenant resolution, CRUD for products, customers, invoices.
+- **Database**: Supabase (PostgreSQL). Schema in `supabase/migrations/00001_initial_schema.sql`.
+- **Docs**: `docs/DESIGN.md` (full system design), `docs/DEPLOYMENT.md`, `docs/TESTING.md`.
 
-## React Compiler
+## Quick start (local)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1. Supabase
 
-## Expanding the ESLint configuration
+1. Create a project at [supabase.com](https://supabase.com).
+2. In SQL Editor, run the contents of `supabase/migrations/00001_initial_schema.sql`.
+3. In Project Settings → API, copy **Project URL**, **anon (public) key**, **service_role key**, and **JWT Secret**.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 2. Backend
+
+```bash
+cd server
+cp .env.example .env
+# Edit .env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, CORS_ORIGIN=http://localhost:5173
+npm install
+npm run dev
+```
+
+Backend runs at `http://localhost:3001`. Check `http://localhost:3001/health` → `{"status":"ok"}`.
+
+### 3. Frontend
+
+```bash
+# from repo root
+cp .env.example .env.local
+# Edit .env.local: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_KEY), VITE_API_URL=http://localhost:3001
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. Sign up → complete “Create your shop” → add products/customers → create invoice → use “Print / Save as PDF”.
+
+## Scripts
+
+| Where   | Command        | Purpose              |
+|---------|----------------|----------------------|
+| Root    | `npm run dev`  | Vite frontend        |
+| Root    | `npm run build`| Production build     |
+| Server  | `npm run dev`  | Express with watch   |
+| Server  | `npm start`    | Run API (production) |
+
+## Tenant isolation
+
+- **Backend** resolves `tenant_id` from the JWT (Supabase `sub`) via the `users` table. It **never** uses `tenant_id` from the request body or query.
+- **Frontend** never sends `tenant_id`; it only sends the JWT. All tenant-scoped requests go to the Express API.
+
+## Deployment
+
+See **docs/DEPLOYMENT.md** for env vars, migrations, backend (Railway/Render/VPS), frontend (Vercel), and CORS.
+
+## Testing
+
+See **docs/TESTING.md** for tenant isolation checks, security tests, and manual test cases.
+
+## Design (all 9 phases)
+
+See **docs/DESIGN.md** for: system design, DB design, auth & tenant creation, API spec, frontend structure, invoice generation, deployment notes, testing, and MVP → SaaS roadmap.
