@@ -49,19 +49,20 @@ router.get('/', async (req, res, next) => {
   try {
     let q = supabase
       .from('products')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('tenant_id', req.tenantId)
       .order('name');
     const search = (req.query?.q ?? '').toString().trim();
-    if (search) {
-      q = q.ilike('name', `%${search}%`);
-    }
-    const { data, error } = await q;
+    if (search) q = q.ilike('name', `%${search}%`);
+    const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 100);
+    const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
+    q = q.range(offset, offset + limit - 1);
+    const { data, error, count } = await q;
     if (error) {
       console.error(error);
       return res.status(500).json({ error: 'Failed to list products' });
     }
-    return res.json(data || []);
+    return res.json({ data: data || [], total: count ?? data?.length ?? 0 });
   } catch (err) {
     next(err);
   }

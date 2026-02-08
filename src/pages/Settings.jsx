@@ -7,10 +7,18 @@ export default function Settings() {
   const { token, tenant, refetchMe } = useAuth();
   const { showToast } = useToast();
   const [name, setName] = useState(tenant?.name ?? '');
+  const [currency, setCurrency] = useState(tenant?.currency ?? 'INR');
+  const [currencySymbol, setCurrencySymbol] = useState(tenant?.currency_symbol ?? '₹');
+  const [gstin, setGstin] = useState(tenant?.gstin ?? '');
+  const [taxPercent, setTaxPercent] = useState(tenant?.tax_percent != null ? String(tenant.tax_percent) : '0');
 
   useEffect(() => {
-    if (tenant?.name !== undefined) setName(tenant.name);
-  }, [tenant?.name]);
+    if (tenant?.name !== undefined) setName(tenant.name ?? '');
+    if (tenant?.currency !== undefined) setCurrency(tenant.currency ?? 'INR');
+    if (tenant?.currency_symbol !== undefined) setCurrencySymbol(tenant.currency_symbol ?? '₹');
+    if (tenant?.gstin !== undefined) setGstin(tenant.gstin ?? '');
+    if (tenant?.tax_percent != null) setTaxPercent(String(tenant.tax_percent));
+  }, [tenant?.name, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -19,9 +27,20 @@ export default function Settings() {
     setError('');
     setSubmitting(true);
     try {
-      await api.patch(token, '/api/me', { name: name.trim() });
+      const tax = parseFloat(taxPercent, 10);
+      if (Number.isNaN(tax) || tax < 0 || tax > 100) {
+        setError('Tax % must be between 0 and 100');
+        return;
+      }
+      await api.patch(token, '/api/me', {
+        name: (name ?? '').trim(),
+        currency: (currency ?? '').trim() || 'INR',
+        currency_symbol: (currencySymbol ?? '').trim() || undefined,
+        gstin: (gstin ?? '').trim() || undefined,
+        tax_percent: tax,
+      });
       await refetchMe();
-      showToast('Shop name updated', 'success');
+      showToast('Settings updated', 'success');
     } catch (e) {
       setError(e.message || 'Failed to update');
     } finally {
@@ -41,7 +60,7 @@ export default function Settings() {
             <span>Name</span>
             <input
               className="form__input"
-              value={name}
+              value={name ?? ''}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Kiran Store"
               required
@@ -53,7 +72,52 @@ export default function Settings() {
               Slug: <code>{tenant.slug}</code> (read-only)
             </p>
           )}
-          <div className="form__actions">
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Currency &amp; tax</h3>
+          <div className="form form--grid">
+            <label className="form__label">
+              <span>Currency code</span>
+            <input
+              className="form__input"
+              value={currency ?? ''}
+              onChange={(e) => setCurrency(e.target.value)}
+                placeholder="e.g. INR, USD"
+                maxLength={10}
+              />
+            </label>
+            <label className="form__label">
+              <span>Currency symbol</span>
+            <input
+              className="form__input"
+              value={currencySymbol ?? ''}
+              onChange={(e) => setCurrencySymbol(e.target.value)}
+                placeholder="e.g. ₹, $"
+                maxLength={10}
+              />
+            </label>
+            <label className="form__label">
+              <span>GSTIN (India)</span>
+            <input
+              className="form__input"
+              value={gstin ?? ''}
+              onChange={(e) => setGstin(e.target.value)}
+                placeholder="e.g. 27AABCU9603R1ZM"
+                maxLength={20}
+              />
+            </label>
+            <label className="form__label">
+              <span>Tax %</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                className="form__input"
+                value={taxPercent ?? '0'}
+                onChange={(e) => setTaxPercent(e.target.value)}
+              />
+            </label>
+          </div>
+          <div className="form__actions" style={{ marginTop: '1rem' }}>
             <button type="submit" className="btn btn--primary" disabled={submitting}>
               {submitting ? 'Saving…' : 'Save'}
             </button>

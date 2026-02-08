@@ -104,9 +104,12 @@ router.post('/', async (req, res, next) => {
       });
     }
 
-    const subtotal = items.reduce((s, i) => s + i.amount, 0);
-    const total = Math.round(subtotal * 100) / 100;
+    const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
     const invoiceNumber = await nextInvoiceNumber(req.tenantId);
+    const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', req.tenantId).single();
+    const taxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
+    const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
+    const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
     const { data: invoice, error: invErr } = await supabase
       .from('invoices')
@@ -117,6 +120,8 @@ router.post('/', async (req, res, next) => {
         invoice_date: invoiceDate,
         status,
         subtotal,
+        tax_percent: taxPercent,
+        tax_amount: taxAmount,
         total,
       })
       .select()
@@ -155,9 +160,29 @@ router.post('/', async (req, res, next) => {
 
 router.get('/', async (req, res, next) => {
   try {
+    const format = (req.query?.format ?? '').toString().toLowerCase();
+    if (format === 'csv') {
+      const { data: rows, error } = await supabase
+        .from('invoices')
+        .select('invoice_number, invoice_date, status, subtotal, tax_amount, total, created_at')
+        .eq('tenant_id', req.tenantId)
+        .order('created_at', { ascending: false })
+        .limit(2000);
+      if (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Failed to export' });
+      }
+      const header = 'Invoice Number,Date,Status,Subtotal,Tax,Total,Created At\n';
+      const csv = header + (rows || []).map((r) =>
+        [r.invoice_number, r.invoice_date, r.status, r.subtotal, r.tax_amount ?? 0, r.total, r.created_at].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')
+      ).join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="invoices.csv"');
+      return res.send(csv);
+    }
     let q = supabase
       .from('invoices')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('tenant_id', req.tenantId)
       .order('created_at', { ascending: false });
     const status = (req.query?.status ?? '').toString().trim();
@@ -167,12 +192,12 @@ router.get('/', async (req, res, next) => {
     const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 100);
     const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
     q = q.range(offset, offset + limit - 1);
-    const { data, error } = await q;
+    const { data, error, count } = await q;
     if (error) {
       console.error(error);
       return res.status(500).json({ error: 'Failed to list invoices' });
     }
-    return res.json(data || []);
+    return res.json({ data: data || [], total: count ?? data?.length ?? 0 });
   } catch (err) {
     next(err);
   }
@@ -252,12 +277,16 @@ router.patch('/:id', async (req, res, next) => {
         const amount = Math.round(v.quantity * unitPrice * 100) / 100;
         items.push({ product_id: productId || null, description: desc, quantity: v.quantity, unit_price: unitPrice, amount });
       }
-      const total = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
+      const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
+      const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', req.tenantId).single();
+      const taxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
+      const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
+      const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
       await supabase.from('invoice_items').delete().eq('invoice_id', id);
       const { data: invoice, error: updateErr } = await supabase
         .from('invoices')
-        .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal: total, total })
+        .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal, tax_percent: taxPercent, tax_amount: taxAmount, total })
         .eq('id', id)
         .eq('tenant_id', req.tenantId)
         .select()

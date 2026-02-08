@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
+import { formatMoney } from '../lib/format';
 
 /**
  * Print-friendly invoice view. User can Print → Save as PDF (MVP).
@@ -105,6 +106,7 @@ export default function InvoicePrint() {
         <header className="invoice-print__header">
           <div>
             <h1 className="invoice-print__shop">{tenant?.name || 'Shop'}</h1>
+            {tenant?.gstin && <p className="invoice-print__meta">GSTIN: {tenant.gstin}</p>}
             <p className="invoice-print__meta">Invoice</p>
           </div>
           <div className="invoice-print__num">
@@ -138,15 +140,29 @@ export default function InvoicePrint() {
                 <td>{i + 1}</td>
                 <td>{row.description}</td>
                 <td>{Number(row.quantity)}</td>
-                <td>₹{Number(row.unit_price).toFixed(2)}</td>
-                <td>₹{Number(row.amount).toFixed(2)}</td>
+                <td>{formatMoney(row.unit_price, tenant)}</td>
+                <td>{formatMoney(row.amount, tenant)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        <div className="invoice-print__total">
-          <span>Total</span>
-          <span>₹{Number(invoice.total).toFixed(2)}</span>
+        <div className="invoice-print__totals">
+          {invoice.tax_percent != null && Number(invoice.tax_percent) > 0 && (
+            <>
+              <div className="invoice-print__total">
+                <span>Subtotal</span>
+                <span>{formatMoney(invoice.subtotal ?? invoice.total, tenant)}</span>
+              </div>
+              <div className="invoice-print__total">
+                <span>Tax ({Number(invoice.tax_percent)}%)</span>
+                <span>{formatMoney(invoice.tax_amount ?? 0, tenant)}</span>
+              </div>
+            </>
+          )}
+          <div className="invoice-print__total">
+            <span>Total</span>
+            <span>{formatMoney(invoice.total, tenant)}</span>
+          </div>
         </div>
         <p className="invoice-print__footer">Thank you for your business.</p>
       </div>

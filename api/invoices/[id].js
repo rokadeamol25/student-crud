@@ -94,7 +94,11 @@ export default async function handler(req, res) {
           const amount = Math.round(v.quantity * unitPrice * 100) / 100;
           items.push({ product_id: productId || null, description: desc, quantity: v.quantity, unit_price: unitPrice, amount });
         }
-        const total = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
+        const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
+        const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', tenantId).single();
+        const taxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
+        const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
+        const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
         const { error: delErr } = await supabase.from('invoice_items').delete().eq('invoice_id', id);
         if (delErr) {
@@ -103,7 +107,7 @@ export default async function handler(req, res) {
         }
         const { data: invoice, error: updateErr } = await supabase
           .from('invoices')
-          .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal: total, total })
+          .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal, tax_percent: taxPercent, tax_amount: taxAmount, total })
           .eq('id', id)
           .eq('tenant_id', tenantId)
           .select()

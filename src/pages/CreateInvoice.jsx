@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
+import { formatMoney } from '../lib/format';
 
 const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0 });
 
 export default function CreateInvoice() {
-  const { token } = useAuth();
+  const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
@@ -21,12 +22,14 @@ export default function CreateInvoice() {
   useEffect(() => {
     if (!token) return;
     Promise.all([
-      api.get(token, '/api/customers'),
-      api.get(token, '/api/products'),
-    ]).then(([c, p]) => {
-      setCustomers(c || []);
-      setProducts(p || []);
-      if ((c || []).length) setCustomerId(c[0].id);
+      api.get(token, '/api/customers?limit=500'),
+      api.get(token, '/api/products?limit=500'),
+    ]).then(([cRes, pRes]) => {
+      const c = Array.isArray(cRes) ? cRes : (cRes?.data ?? []);
+      const p = Array.isArray(pRes) ? pRes : (pRes?.data ?? []);
+      setCustomers(c);
+      setProducts(p);
+      if (c.length) setCustomerId(c[0].id);
     }).catch((e) => setError(e.message));
   }, [token]);
 
@@ -53,7 +56,10 @@ export default function CreateInvoice() {
     setItems((prev) => prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev);
   }
 
-  const total = items.reduce((sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0);
+  const subtotal = items.reduce((sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0);
+  const taxPercent = tenant?.tax_percent != null ? Number(tenant.tax_percent) : 0;
+  const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
+  const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -127,7 +133,7 @@ export default function CreateInvoice() {
                 >
                   <option value="">—</option>
                   {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} — ₹{Number(p.price).toFixed(2)}</option>
+                    <option key={p.id} value={p.id}>{p.name} — {formatMoney(p.price, tenant)}</option>
                   ))}
                 </select>
               </label>
@@ -162,7 +168,7 @@ export default function CreateInvoice() {
               </div>
               <div className="invoice-item-card__footer">
                 <span className="invoice-item-card__amount">
-                  ₹{((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)).toFixed(2)}
+                  {formatMoney((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), tenant)}
                 </span>
                 <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>
                   Remove
@@ -197,7 +203,7 @@ export default function CreateInvoice() {
                       >
                         <option value="">—</option>
                         {products.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name} — ₹{Number(p.price).toFixed(2)}</option>
+                          <option key={p.id} value={p.id}>{p.name} — {formatMoney(p.price, tenant)}</option>
                         ))}
                       </select>
                     </td>
@@ -225,7 +231,7 @@ export default function CreateInvoice() {
                         onChange={(e) => updateLine(i, 'unitPrice', e.target.value)}
                       />
                     </td>
-                    <td>₹{((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0)).toFixed(2)}</td>
+                    <td>{formatMoney((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), tenant)}</td>
                     <td>
                       <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>
                         Remove
@@ -241,7 +247,13 @@ export default function CreateInvoice() {
         <button type="button" className="btn btn--secondary invoice-form__add-line" onClick={addLine}>
           Add line
         </button>
-        <p className="invoice-form__total"><strong>Total: ₹{total.toFixed(2)}</strong></p>
+        <div className="invoice-form__totals" style={{ marginTop: '1rem' }}>
+          <p className="invoice-form__total">Subtotal: {formatMoney(subtotal, tenant)}</p>
+          {taxPercent > 0 && (
+            <p className="invoice-form__total">Tax ({taxPercent}%): {formatMoney(taxAmount, tenant)}</p>
+          )}
+          <p className="invoice-form__total"><strong>Total: {formatMoney(total, tenant)}</strong></p>
+        </div>
         <div className="form__actions">
           <button type="submit" className="btn btn--primary" disabled={submitting}>
             {submitting ? 'Creating…' : 'Create invoice'}

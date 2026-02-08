@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
+
+const PAGE_SIZE = 20;
 
 export default function Customers() {
   const { token } = useAuth();
   const { showToast } = useToast();
   const [list, setList] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
@@ -15,6 +18,7 @@ export default function Customers() {
   const [address, setAddress] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -22,14 +26,27 @@ export default function Customers() {
   const [editAddress, setEditAddress] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
 
+  const fetchList = useCallback(() => {
+    if (!token) return;
+    const params = new URLSearchParams();
+    if (search) params.set('q', search);
+    params.set('limit', String(PAGE_SIZE));
+    params.set('offset', String(page * PAGE_SIZE));
+    return api.get(token, `/api/customers?${params.toString()}`)
+      .then((res) => {
+        const data = Array.isArray(res) ? res : (res?.data ?? []);
+        const tot = typeof res?.total === 'number' ? res.total : data.length;
+        setList(data);
+        setTotal(tot);
+      })
+      .catch((e) => setError(e.message));
+  }, [token, search, page]);
+
   useEffect(() => {
     if (!token) return;
     setLoading(true);
-    api.get(token, `/api/customers${search ? `?q=${encodeURIComponent(search)}` : ''}`)
-      .then(setList)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [token, search]);
+    fetchList().finally(() => setLoading(false));
+  }, [token, search, page, fetchList]);
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -47,6 +64,7 @@ export default function Customers() {
       setPhone('');
       setAddress('');
       setList((prev) => [data, ...prev]);
+      setTotal((t) => t + 1);
       showToast('Customer added', 'success');
     } catch (e) {
       setError(e.message || 'Failed to add');
@@ -96,7 +114,7 @@ export default function Customers() {
           type="search"
           placeholder="Search…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(0); }}
           className="form__input page__search"
         />
       </div>
@@ -159,6 +177,13 @@ export default function Customers() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {total > PAGE_SIZE && (
+          <div className="pagination" style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</button>
+            <span className="page__muted">{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}</span>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage((p) => p + 1)}>Next</button>
           </div>
         )}
       </section>

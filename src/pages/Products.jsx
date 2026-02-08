@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
+import { formatMoney } from '../lib/format';
+
+const PAGE_SIZE = 20;
 
 export default function Products() {
-  const { token } = useAuth();
+  const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const [list, setList] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
@@ -14,20 +18,34 @@ export default function Products() {
   const [unit, setUnit] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
   const [editPrice, setEditPrice] = useState('');
   const [editUnit, setEditUnit] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
 
+  const fetchList = useCallback(() => {
+    if (!token) return;
+    const params = new URLSearchParams();
+    if (search) params.set('q', search);
+    params.set('limit', String(PAGE_SIZE));
+    params.set('offset', String(page * PAGE_SIZE));
+    return api.get(token, `/api/products?${params.toString()}`)
+      .then((res) => {
+        const data = Array.isArray(res) ? res : (res?.data ?? []);
+        const tot = typeof res?.total === 'number' ? res.total : data.length;
+        setList(data);
+        setTotal(tot);
+      })
+      .catch((e) => setError(e.message));
+  }, [token, search, page]);
+
   useEffect(() => {
     if (!token) return;
     setLoading(true);
-    api.get(token, `/api/products${search ? `?q=${encodeURIComponent(search)}` : ''}`)
-      .then(setList)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [token, search]);
+    fetchList().finally(() => setLoading(false));
+  }, [token, search, page, fetchList]);
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -43,6 +61,7 @@ export default function Products() {
       setPrice('');
       setUnit('');
       setList((prev) => [data, ...prev]);
+      setTotal((t) => t + 1);
       showToast('Product added', 'success');
     } catch (e) {
       setError(e.message || 'Failed to add');
@@ -91,6 +110,7 @@ export default function Products() {
     try {
       await api.del(token, `/api/products/${p.id}`);
       setList((prev) => prev.filter((x) => x.id !== p.id));
+      setTotal((t) => Math.max(0, t - 1));
       showToast('Product deleted', 'success');
     } catch (e) {
       if (e.status === 409) {
@@ -109,7 +129,7 @@ export default function Products() {
           type="search"
           placeholder="Search products…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(0); }}
           className="form__input page__search"
         />
       </div>
@@ -166,7 +186,7 @@ export default function Products() {
                 {list.map((p) => (
                   <tr key={p.id}>
                     <td>{p.name}</td>
-                    <td>{Number(p.price).toFixed(2)}</td>
+                    <td>{formatMoney(p.price, tenant)}</td>
                     <td>{p.unit || '—'}</td>
                     <td>
                       <span className="table-actions">
@@ -182,6 +202,13 @@ export default function Products() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+        {total > PAGE_SIZE && (
+          <div className="pagination" style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</button>
+            <span className="page__muted">{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}</span>
+            <button type="button" className="btn btn--ghost btn--sm" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage((p) => p + 1)}>Next</button>
           </div>
         )}
       </section>

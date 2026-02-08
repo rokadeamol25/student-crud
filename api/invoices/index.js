@@ -76,8 +76,13 @@ export default async function handler(req, res) {
       const amount = Math.round(v.quantity * unitPrice * 100) / 100;
       items.push({ product_id: productId || null, description: desc, quantity: v.quantity, unit_price: unitPrice, amount });
     }
-    const total = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
+    const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
     const invoiceNumber = await nextInvoiceNumber(tenantId);
+
+    const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', tenantId).single();
+    const taxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
+    const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
+    const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
     const { data: invoice, error: invErr } = await supabase.from('invoices').insert({
       tenant_id: tenantId,
@@ -85,7 +90,9 @@ export default async function handler(req, res) {
       invoice_number: invoiceNumber,
       invoice_date: invoiceDate,
       status,
-      subtotal: total,
+      subtotal,
+      tax_percent: taxPercent,
+      tax_amount: taxAmount,
       total,
     }).select().single();
     if (invErr) {
@@ -112,7 +119,27 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'GET') {
-      let q = supabase.from('invoices').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false });
+      const format = (req.query?.format ?? '').toString().toLowerCase();
+      if (format === 'csv') {
+        const { data: rows, error } = await supabase
+          .from('invoices')
+          .select('invoice_number, invoice_date, status, subtotal, tax_amount, total, created_at')
+          .eq('tenant_id', tenantId)
+          .order('created_at', { ascending: false })
+          .limit(2000);
+        if (error) {
+          console.error(error);
+          return res.status(500).json({ error: 'Failed to export' });
+        }
+        const header = 'Invoice Number,Date,Status,Subtotal,Tax,Total,Created At\n';
+        const csv = header + (rows || []).map((r) =>
+          [r.invoice_number, r.invoice_date, r.status, r.subtotal, r.tax_amount ?? 0, r.total, r.created_at].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="invoices.csv"');
+        return res.status(200).send(csv);
+      }
+      let q = supabase.from('invoices').select('*', { count: 'exact' }).eq('tenant_id', tenantId).order('created_at', { ascending: false });
       const status = (req.query?.status ?? '').toString().trim();
       if (status) q = q.eq('status', status);
       const customerId = (req.query?.customerId ?? '').toString().trim();
@@ -120,12 +147,12 @@ export default async function handler(req, res) {
       const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 100);
       const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
       q = q.range(offset, offset + limit - 1);
-      const { data, error } = await q;
+      const { data, error, count } = await q;
       if (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to list invoices' });
       }
-      return res.json(data || []);
+      return res.json({ data: data || [], total: count ?? data?.length ?? 0 });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
