@@ -1,9 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ConfirmDialog from '../components/ConfirmDialog';
+import EmptyState from '../components/EmptyState';
+import InvoiceListSkeleton from '../components/InvoiceListSkeleton';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
@@ -12,6 +15,16 @@ const STATUS_OPTIONS = [
   { value: 'paid', label: 'Paid' },
 ];
 const PAGE_SIZE = 20;
+
+function paymentStatus(inv) {
+  const total = Number(inv?.total) ?? 0;
+  const amountPaid = Number(inv?.amount_paid) ?? 0;
+  const balance = Math.round((total - amountPaid) * 100) / 100;
+  if (total <= 0) return { label: '—', balance: 0 };
+  if (amountPaid >= total) return { label: 'Paid in full', balance: 0 };
+  if (amountPaid > 0) return { label: 'Partially paid', balance };
+  return { label: 'Unpaid', balance };
+}
 
 export default function Invoices() {
   const { token, tenant } = useAuth();
@@ -23,6 +36,9 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(0);
   const [exporting, setExporting] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const navigate = useNavigate();
 
   const fetchList = useCallback(() => {
     if (!token) return;
@@ -43,15 +59,23 @@ export default function Invoices() {
     fetchList().finally(() => setLoading(false));
   }, [token, statusFilter, page, fetchList]);
 
-  async function handleDelete(inv) {
-    if (!window.confirm(`Delete draft invoice ${inv.invoice_number}?`)) return;
+  function openDelete(inv) {
+    setInvoiceToDelete(inv);
+  }
+
+  async function handleConfirmDelete() {
+    if (!invoiceToDelete) return;
+    setDeleting(true);
     try {
-      await api.del(token, `/api/invoices/${inv.id}`);
-      setList((prev) => prev.filter((i) => i.id !== inv.id));
+      await api.del(token, `/api/invoices/${invoiceToDelete.id}`);
+      setList((prev) => prev.filter((i) => i.id !== invoiceToDelete.id));
       setTotal((t) => Math.max(0, t - 1));
+      setInvoiceToDelete(null);
       showToast('Draft invoice deleted', 'success');
     } catch (e) {
       showToast(e.message || 'Failed to delete', 'error');
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -93,9 +117,14 @@ export default function Invoices() {
       {error && <div className="page__error">{error}</div>}
       <section className="card page__section">
         {loading ? (
-          <p className="page__muted">Loading…</p>
+          <InvoiceListSkeleton />
         ) : list.length === 0 ? (
-          <p className="page__muted">No invoices yet. <Link to="/invoices/new">Create one</Link>.</p>
+          <EmptyState
+            title="No invoices yet"
+            description="Create your first invoice to get started."
+            actionLabel="Create first invoice"
+            onAction={() => navigate('/invoices/new')}
+          />
         ) : (
           <>
             <div className="invoice-list-cards">
@@ -114,6 +143,17 @@ export default function Invoices() {
                     <span className={`badge badge--${inv.status}`}>{inv.status}</span>
                   </div>
                   <div className="invoice-card__row">
+                    <span className="invoice-card__label">Payment</span>
+                    <span className="invoice-card__value">
+                      {paymentStatus(inv).label}
+                      {paymentStatus(inv).balance > 0 && (
+                        <span className="page__muted" style={{ display: 'block', fontSize: '0.8125rem' }}>
+                          Balance: {formatMoney(paymentStatus(inv).balance, tenant)}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="invoice-card__row">
                     <span className="invoice-card__label">Total</span>
                     <span className="invoice-card__value">{formatMoney(inv.total, tenant)}</span>
                   </div>
@@ -123,7 +163,7 @@ export default function Invoices() {
                         <Link to={`/invoices/${inv.id}/edit`} className="btn btn--secondary invoice-card__action">
                           Edit
                         </Link>
-                        <button type="button" className="btn btn--ghost btn--danger invoice-card__action" onClick={() => handleDelete(inv)}>
+                        <button type="button" className="btn btn--ghost btn--danger invoice-card__action" onClick={() => openDelete(inv)}>
                           Delete
                         </button>
                       </>
@@ -142,30 +182,41 @@ export default function Invoices() {
                     <th>Number</th>
                     <th>Date</th>
                     <th>Status</th>
+                    <th>Payment</th>
                     <th>Total</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {list.map((inv) => (
+                  {list.map((inv) => {
+                    const pay = paymentStatus(inv);
+                    return (
                     <tr key={inv.id}>
                       <td>{inv.invoice_number}</td>
                       <td>{inv.invoice_date}</td>
                       <td><span className={`badge badge--${inv.status}`}>{inv.status}</span></td>
+                      <td>
+                        <span>{pay.label}</span>
+                        {pay.balance > 0 && (
+                          <span className="page__muted" style={{ display: 'block', fontSize: '0.8125rem' }}>
+                            {formatMoney(pay.balance, tenant)} due
+                          </span>
+                        )}
+                      </td>
                       <td>{formatMoney(inv.total, tenant)}</td>
                       <td>
                         <span className="table-actions">
                           {inv.status === 'draft' && (
                             <>
                               <Link to={`/invoices/${inv.id}/edit`} className="btn btn--ghost btn--sm">Edit</Link>
-                              <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => handleDelete(inv)}>Delete</button>
+                              <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => openDelete(inv)}>Delete</button>
                             </>
                           )}
                           <Link to={`/invoices/${inv.id}/print`} className="btn btn--ghost btn--sm">View / Print</Link>
                         </span>
                       </td>
                     </tr>
-                  ))}
+                  ); })}
                 </tbody>
               </table>
             </div>
@@ -185,6 +236,18 @@ export default function Invoices() {
           </>
         )}
       </section>
+
+      <ConfirmDialog
+        open={!!invoiceToDelete}
+        title="Delete draft invoice"
+        message={invoiceToDelete ? `Delete draft invoice ${invoiceToDelete.invoice_number}? This cannot be undone.` : ''}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setInvoiceToDelete(null)}
+      />
     </div>
   );
 }

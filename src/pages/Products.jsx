@@ -1,8 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ConfirmDialog from '../components/ConfirmDialog';
+import EmptyState from '../components/EmptyState';
+import ListSkeleton from '../components/ListSkeleton';
 
 const PAGE_SIZE = 20;
 
@@ -16,6 +19,8 @@ export default function Products() {
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [unit, setUnit] = useState('');
+  const [hsnSacCode, setHsnSacCode] = useState('');
+  const [taxPercent, setTaxPercent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
@@ -23,7 +28,12 @@ export default function Products() {
   const [editName, setEditName] = useState('');
   const [editPrice, setEditPrice] = useState('');
   const [editUnit, setEditUnit] = useState('');
+  const [editHsnSacCode, setEditHsnSacCode] = useState('');
+  const [editTaxPercent, setEditTaxPercent] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const [productToDelete, setProductToDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const addFormRef = useRef(null);
 
   const fetchList = useCallback(() => {
     if (!token) return;
@@ -56,10 +66,14 @@ export default function Products() {
         name: name.trim(),
         price: parseFloat(price, 10) || 0,
         unit: unit.trim() || undefined,
+        hsn_sac_code: hsnSacCode.trim() || undefined,
+        tax_percent: taxPercent !== '' && !Number.isNaN(parseFloat(taxPercent, 10)) ? parseFloat(taxPercent, 10) : undefined,
       });
       setName('');
       setPrice('');
       setUnit('');
+      setHsnSacCode('');
+      setTaxPercent('');
       setList((prev) => [data, ...prev]);
       setTotal((t) => t + 1);
       showToast('Product added', 'success');
@@ -75,6 +89,8 @@ export default function Products() {
     setEditName(p.name);
     setEditPrice(String(p.price));
     setEditUnit(p.unit || '');
+    setEditHsnSacCode(p.hsn_sac_code || '');
+    setEditTaxPercent(p.tax_percent != null ? String(p.tax_percent) : '');
   }
 
   function closeEdit() {
@@ -82,6 +98,8 @@ export default function Products() {
     setEditName('');
     setEditPrice('');
     setEditUnit('');
+    setEditHsnSacCode('');
+    setEditTaxPercent('');
   }
 
   async function handleEditSubmit(e) {
@@ -93,6 +111,8 @@ export default function Products() {
         name: editName.trim(),
         price: parseFloat(editPrice, 10) ?? 0,
         unit: editUnit.trim() || undefined,
+        hsn_sac_code: editHsnSacCode.trim() || undefined,
+        tax_percent: editTaxPercent !== '' && !Number.isNaN(parseFloat(editTaxPercent, 10)) ? parseFloat(editTaxPercent, 10) : undefined,
       });
       setList((prev) => prev.map((p) => (p.id === data.id ? data : p)));
       closeEdit();
@@ -104,13 +124,19 @@ export default function Products() {
     }
   }
 
-  async function handleDelete(p) {
-    if (!window.confirm(`Delete "${p.name}"?`)) return;
+  function openDelete(p) {
+    setProductToDelete(p);
+  }
+
+  async function handleConfirmDelete() {
+    if (!productToDelete) return;
+    setDeleting(true);
     setError('');
     try {
-      await api.del(token, `/api/products/${p.id}`);
-      setList((prev) => prev.filter((x) => x.id !== p.id));
+      await api.del(token, `/api/products/${productToDelete.id}`);
+      setList((prev) => prev.filter((x) => x.id !== productToDelete.id));
       setTotal((t) => Math.max(0, t - 1));
+      setProductToDelete(null);
       showToast('Product deleted', 'success');
     } catch (e) {
       if (e.status === 409) {
@@ -118,6 +144,8 @@ export default function Products() {
       } else {
         setError(e.message || 'Failed to delete');
       }
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -134,9 +162,9 @@ export default function Products() {
         />
       </div>
       {error && <div className="page__error">{error}</div>}
-      <section className="card page__section">
+      <section className="card page__section" ref={addFormRef}>
         <h2 className="card__heading">Add product</h2>
-        <form onSubmit={handleAdd} className="form form--inline">
+        <form onSubmit={handleAdd} className="form form--grid" style={{ gap: '0.5rem', alignItems: 'end' }}>
           <input
             className="form__input"
             placeholder="Name"
@@ -160,6 +188,23 @@ export default function Products() {
             value={unit}
             onChange={(e) => setUnit(e.target.value)}
           />
+          <input
+            className="form__input"
+            placeholder="HSN/SAC code"
+            value={hsnSacCode}
+            onChange={(e) => setHsnSacCode(e.target.value)}
+            maxLength={20}
+          />
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            max="100"
+            className="form__input"
+            placeholder="Tax % (optional)"
+            value={taxPercent}
+            onChange={(e) => setTaxPercent(e.target.value)}
+          />
           <button type="submit" className="btn btn--primary" disabled={submitting}>
             Add
           </button>
@@ -168,9 +213,14 @@ export default function Products() {
       <section className="card page__section">
         <h2 className="card__heading">All products</h2>
         {loading ? (
-          <p className="page__muted">Loading…</p>
+          <ListSkeleton rows={6} columns={4} />
         ) : list.length === 0 ? (
-          <p className="page__muted">No products yet. Add one above.</p>
+          <EmptyState
+            title="No products yet"
+            description="Add your first product to use in invoices."
+            actionLabel="Add product"
+            onAction={() => addFormRef.current?.scrollIntoView?.({ behavior: 'smooth' })}
+          />
         ) : (
           <div className="table-wrap">
             <table className="table">
@@ -179,6 +229,8 @@ export default function Products() {
                   <th>Name</th>
                   <th>Price</th>
                   <th>Unit</th>
+                  <th>HSN/SAC</th>
+                  <th>Tax %</th>
                   <th></th>
                 </tr>
               </thead>
@@ -188,12 +240,14 @@ export default function Products() {
                     <td>{p.name}</td>
                     <td>{formatMoney(p.price, tenant)}</td>
                     <td>{p.unit || '—'}</td>
+                    <td>{p.hsn_sac_code || '—'}</td>
+                    <td>{p.tax_percent != null ? `${p.tax_percent}%` : '—'}</td>
                     <td>
                       <span className="table-actions">
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(p)}>
                           Edit
                         </button>
-                        <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => handleDelete(p)}>
+                        <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => openDelete(p)}>
                           Delete
                         </button>
                       </span>
@@ -212,6 +266,18 @@ export default function Products() {
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={!!productToDelete}
+        title="Delete product"
+        message={productToDelete ? `Delete "${productToDelete.name}"? This cannot be undone.` : ''}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        loading={deleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setProductToDelete(null)}
+      />
 
       {editing && (
         <div className="modal-backdrop" onClick={closeEdit}>
@@ -245,6 +311,29 @@ export default function Products() {
                   className="form__input"
                   value={editUnit}
                   onChange={(e) => setEditUnit(e.target.value)}
+                />
+              </label>
+              <label className="form__label">
+                <span>HSN/SAC code</span>
+                <input
+                  className="form__input"
+                  placeholder="e.g. 998314"
+                  value={editHsnSacCode}
+                  onChange={(e) => setEditHsnSacCode(e.target.value)}
+                  maxLength={20}
+                />
+              </label>
+              <label className="form__label">
+                <span>Tax % (optional, overrides tenant default)</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  className="form__input"
+                  placeholder="Leave empty for default"
+                  value={editTaxPercent}
+                  onChange={(e) => setEditTaxPercent(e.target.value)}
                 />
               </label>
               <div className="modal__actions">

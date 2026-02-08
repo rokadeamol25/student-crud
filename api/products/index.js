@@ -15,7 +15,18 @@ export default async function handler(req, res) {
     const price = Number(body.price);
     if (price === undefined || Number.isNaN(price) || price < 0) return res.status(400).json({ error: 'price is required and must be >= 0' });
     const unit = (body.unit ?? '').toString().trim().slice(0, 50) || null;
-    const { data, error } = await supabase.from('products').insert({ tenant_id: tenantId, name, price, unit }).select().single();
+    const hsnSacCode = (body.hsn_sac_code ?? body.hsnSacCode ?? '').toString().trim().slice(0, 20) || null;
+    const taxPercent = body.tax_percent !== undefined && body.tax_percent !== null
+      ? (Number(body.tax_percent) >= 0 && Number(body.tax_percent) <= 100 ? Number(body.tax_percent) : null)
+      : null;
+    const { data, error } = await supabase.from('products').insert({
+      tenant_id: tenantId,
+      name,
+      price,
+      unit,
+      hsn_sac_code: hsnSacCode,
+      tax_percent: taxPercent,
+    }).select().single();
     if (error) {
       console.error(error);
       return res.status(500).json({ error: 'Failed to create product' });

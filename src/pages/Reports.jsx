@@ -34,6 +34,7 @@ export default function Reports() {
   const [topCustomers, setTopCustomers] = useState(null);
   const [taxSummary, setTaxSummary] = useState(null);
   const [revenueTrend, setRevenueTrend] = useState(null);
+  const [productProfit, setProductProfit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -55,8 +56,9 @@ export default function Reports() {
       api.get(token, `/api/reports/top-customers${fromToQuery}`),
       hasRange ? api.get(token, `/api/reports/tax-summary?from=${queryFrom}&to=${queryTo}`) : Promise.resolve(null),
       api.get(token, '/api/reports/revenue-trend?months=6'),
+      hasRange ? api.get(token, `/api/reports/product-profit?from=${queryFrom}&to=${queryTo}`) : Promise.resolve(null),
     ])
-      .then(([s, i, o, p, c, t, r]) => {
+      .then(([s, i, o, p, c, t, r, pp]) => {
         setSales(s);
         setInvoiceSummary(i);
         setOutstanding(o);
@@ -64,6 +66,7 @@ export default function Reports() {
         setTopCustomers(c);
         setTaxSummary(t);
         setRevenueTrend(r);
+        setProductProfit(pp);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -85,6 +88,9 @@ export default function Reports() {
     <div className="page">
       <h1 className="page__title">Reports</h1>
       <p className="page__subtitle">Sales, products, customers, tax, and revenue trend.</p>
+      <p style={{ marginBottom: '1rem' }}>
+        <Link to="/reports/pnl" className="btn btn--secondary btn--sm">P&L Summary</Link>
+      </p>
 
       <div className="page__toolbar reports-toolbar">
         <label className="form__label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -213,6 +219,39 @@ export default function Reports() {
         )}
       </section>
 
+      {/* Product profit (COGS) */}
+      <section className="card page__section">
+        <h2 className="card__heading">Product profit</h2>
+        {productProfit && productProfit.data && productProfit.data.length > 0 ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Qty sold</th>
+                  <th>Sales</th>
+                  <th>Cost</th>
+                  <th>Profit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productProfit.data.map((row, idx) => (
+                  <tr key={row.product_id || idx}>
+                    <td>{row.product_name}</td>
+                    <td>{row.quantity_sold}</td>
+                    <td>{formatMoney(row.sales, tenant)}</td>
+                    <td>{formatMoney(row.cost, tenant)}</td>
+                    <td>{formatMoney(row.profit, tenant)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="page__muted">{hasRange ? 'No product profit data in this period.' : 'Select a date range for product profit.'}</p>
+        )}
+      </section>
+
       {/* Top customers */}
       <section className="card page__section">
         <h2 className="card__heading">Top customers by revenue</h2>
@@ -242,16 +281,57 @@ export default function Reports() {
         )}
       </section>
 
-      {/* Tax summary */}
+      {/* Tax summary (CGST / SGST / IGST) */}
       <section className="card page__section">
         <h2 className="card__heading">GST / Tax summary</h2>
         {taxSummary ? (
-          <div className="report-summary report-summary--block">
-            <p>Taxable value (subtotal): <strong>{formatMoney(taxSummary.subtotal, tenant)}</strong></p>
-            <p>Tax collected: <strong>{formatMoney(taxSummary.taxAmount, tenant)}</strong></p>
-            <p>Invoices (paid): {taxSummary.invoiceCount}</p>
-            {hasRange && <p className="page__muted">{queryFrom} to {queryTo}</p>}
-          </div>
+          <>
+            <p className="report-summary">
+              Invoices (sent/paid): <strong>{taxSummary.invoiceCount}</strong>
+              {taxSummary.period && (
+                <span className="page__muted"> — {taxSummary.period.from} to {taxSummary.period.to}</span>
+              )}
+            </p>
+            {taxSummary.byMonth && taxSummary.byMonth.length > 0 ? (
+              <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Month</th>
+                      <th>CGST</th>
+                      <th>SGST</th>
+                      <th>IGST</th>
+                      <th>Total tax</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {taxSummary.byMonth.map((row) => (
+                      <tr key={row.month}>
+                        <td>{row.month}</td>
+                        <td>{formatMoney(row.cgst, tenant)}</td>
+                        <td>{formatMoney(row.sgst, tenant)}</td>
+                        <td>{formatMoney(row.igst, tenant)}</td>
+                        <td>{formatMoney(row.totalTax, tenant)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {taxSummary.totals && (
+                    <tfoot>
+                      <tr>
+                        <th>Total</th>
+                        <th>{formatMoney(taxSummary.totals.cgst, tenant)}</th>
+                        <th>{formatMoney(taxSummary.totals.sgst, tenant)}</th>
+                        <th>{formatMoney(taxSummary.totals.igst, tenant)}</th>
+                        <th>{formatMoney(taxSummary.totals.totalTax, tenant)}</th>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            ) : (
+              <p className="page__muted">No tax data in this period (or run migration 00006 for CGST/SGST/IGST).</p>
+            )}
+          </>
         ) : (
           <p className="page__muted">Select a date range for tax summary.</p>
         )}

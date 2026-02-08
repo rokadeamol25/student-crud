@@ -11,12 +11,19 @@ import SignupComplete from './pages/SignupComplete';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Customers from './pages/Customers';
+import Suppliers from './pages/Suppliers';
+import SupplierLedger from './pages/SupplierLedger';
+import PurchaseBills from './pages/PurchaseBills';
+import CreatePurchaseBill from './pages/CreatePurchaseBill';
+import PurchaseBill from './pages/PurchaseBill';
 import Invoices from './pages/Invoices';
 import CreateInvoice from './pages/CreateInvoice';
 import EditInvoice from './pages/EditInvoice';
 import InvoicePrint from './pages/InvoicePrint';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
+import ReportsPnl from './pages/ReportsPnl';
+import SessionExpiredHandler from './components/SessionExpiredHandler';
 import './App.css';
 
 function ConfigError() {
@@ -43,6 +50,7 @@ export default function App() {
     <AuthProvider>
       <ToastProvider>
       <BrowserRouter>
+        <SessionExpiredHandler />
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
@@ -58,11 +66,17 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="products" element={<Products />} />
             <Route path="customers" element={<Customers />} />
+            <Route path="suppliers" element={<Suppliers />} />
+            <Route path="suppliers/:id/ledger" element={<SupplierLedger />} />
+            <Route path="purchase-bills" element={<PurchaseBills />} />
+            <Route path="purchase-bills/new" element={<CreatePurchaseBill />} />
+            <Route path="purchase-bills/:id" element={<PurchaseBill />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="invoices/new" element={<CreateInvoice />} />
             <Route path="invoices/:id/edit" element={<EditInvoice />} />
             <Route path="invoices/:id/print" element={<InvoicePrint />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="reports/pnl" element={<ReportsPnl />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

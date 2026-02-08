@@ -52,6 +52,8 @@ export default function Layout() {
         <nav className={`layout__nav${menuOpen ? ' layout__nav--open' : ''}`}>
           <Link to="/products">Products</Link>
           <Link to="/customers">Customers</Link>
+          <Link to="/suppliers">Suppliers</Link>
+          <Link to="/purchase-bills">Purchase bills</Link>
           <Link to="/invoices">Invoices</Link>
           <Link to="/invoices/new">New invoice</Link>
           <Link to="/reports">Reports</Link>

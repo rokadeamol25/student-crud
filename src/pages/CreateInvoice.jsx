@@ -1,11 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ListSkeleton from '../components/ListSkeleton';
 
 const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0 });
+const AUTOSAVE_DEBOUNCE_MS = 2500;
+
+function buildPayload(customerId, invoiceDate, items, gstType = 'intra') {
+  return {
+    customerId,
+    invoiceDate,
+    status: 'draft',
+    gst_type: gstType,
+    items: items.map((it) => ({
+      productId: it.productId || undefined,
+      description: (it.description || '').trim() || 'Item',
+      quantity: Number(it.quantity) || 1,
+      unitPrice: Number(it.unitPrice) || 0,
+    })),
+  };
+}
 
 export default function CreateInvoice() {
   const { token, tenant } = useAuth();
@@ -15,9 +32,50 @@ export default function CreateInvoice() {
   const [products, setProducts] = useState([]);
   const [customerId, setCustomerId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [gstType, setGstType] = useState('intra');
   const [items, setItems] = useState([emptyItem()]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [draftId, setDraftId] = useState(null);
+  const [saveStatus, setSaveStatus] = useState('idle'); // 'idle' | 'saving' | 'saved'
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [loadingOptions, setLoadingOptions] = useState(true);
+  const debounceRef = useRef(null);
+
+  const canAutosave = customerId && invoiceDate && items.length > 0 &&
+    items.some((it) => (it.description || '').trim() || it.productId);
+
+  const performSave = useCallback(async () => {
+    if (!token || !canAutosave) return;
+    const payload = buildPayload(customerId, invoiceDate, items, gstType);
+    setSaveStatus('saving');
+    try {
+      const payload = buildPayload(customerId, invoiceDate, items, gstType);
+      if (draftId) {
+        await api.patch(token, `/api/invoices/${draftId}`, payload);
+      } else {
+        const inv = await api.post(token, '/api/invoices', payload);
+        setDraftId(inv.id);
+      }
+      setSaveStatus('saved');
+      setLastSavedAt(new Date());
+    } catch (e) {
+      setSaveStatus('idle');
+      setError(e.message || e.data?.error || 'Autosave failed');
+    }
+  }, [token, draftId, customerId, invoiceDate, gstType, items, canAutosave]);
+
+  useEffect(() => {
+    if (!canAutosave) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      performSave();
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [customerId, invoiceDate, items, canAutosave, performSave]);
 
   useEffect(() => {
     if (!token) return;
@@ -30,7 +88,7 @@ export default function CreateInvoice() {
       setCustomers(c);
       setProducts(p);
       if (c.length) setCustomerId(c[0].id);
-    }).catch((e) => setError(e.message));
+    }).catch((e) => setError(e.message)).finally(() => setLoadingOptions(false));
   }, [token]);
 
   function addLine() {
@@ -66,30 +124,43 @@ export default function CreateInvoice() {
     setError('');
     setSubmitting(true);
     try {
-      const payload = {
-        customerId,
-        invoiceDate,
-        status: 'draft',
-        items: items.map((it) => ({
-          productId: it.productId || undefined,
-          description: (it.description || '').trim() || 'Item',
-          quantity: Number(it.quantity) || 1,
-          unitPrice: Number(it.unitPrice) || 0,
-        })),
-      };
-      const inv = await api.post(token, '/api/invoices', payload);
-      showToast('Invoice created', 'success');
-      navigate(`/invoices/${inv.id}/print`);
+      const payload = buildPayload(customerId, invoiceDate, items);
+      if (draftId) {
+        await api.patch(token, `/api/invoices/${draftId}`, payload);
+        showToast('Invoice updated', 'success');
+        navigate(`/invoices/${draftId}/print`);
+      } else {
+        const inv = await api.post(token, '/api/invoices', payload);
+        showToast('Invoice created', 'success');
+        navigate(`/invoices/${inv.id}/print`);
+      }
     } catch (e) {
-      setError(e.message || e.data?.error || 'Failed to create invoice');
+      setError(e.message || e.data?.error || 'Failed to save invoice');
     } finally {
       setSubmitting(false);
     }
   }
 
+  if (loadingOptions && customers.length === 0 && products.length === 0) {
+    return (
+      <div className="page">
+        <h1 className="page__title">New invoice</h1>
+        <p className="page__muted">Loading…</p>
+        <div className="card page__section">
+          <ListSkeleton rows={4} columns={2} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <h1 className="page__title">New invoice</h1>
+      {(saveStatus === 'saving' || saveStatus === 'saved') && (
+        <p className="page__muted invoice-form__autosave" style={{ marginBottom: '0.5rem' }}>
+          {saveStatus === 'saving' ? 'Saving…' : lastSavedAt ? `Saved at ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Saved'}
+        </p>
+      )}
       {error && <div className="page__error">{error}</div>}
       <form onSubmit={handleSubmit} className="card page__section">
         <div className="form form--grid">
@@ -116,6 +187,17 @@ export default function CreateInvoice() {
               onChange={(e) => setInvoiceDate(e.target.value)}
               required
             />
+          </label>
+          <label className="form__label">
+            <span>GST type</span>
+            <select
+              className="form__input"
+              value={gstType}
+              onChange={(e) => setGstType(e.target.value)}
+            >
+              <option value="intra">Intra-state (CGST + SGST)</option>
+              <option value="inter">Inter-state (IGST)</option>
+            </select>
           </label>
         </div>
         <h3 className="invoice-form__items-title">Items</h3>

@@ -11,6 +11,12 @@ export default function Settings() {
   const [currencySymbol, setCurrencySymbol] = useState(tenant?.currency_symbol ?? '₹');
   const [gstin, setGstin] = useState(tenant?.gstin ?? '');
   const [taxPercent, setTaxPercent] = useState(tenant?.tax_percent != null ? String(tenant.tax_percent) : '0');
+  const [invoicePrefix, setInvoicePrefix] = useState(tenant?.invoice_prefix ?? 'INV-');
+  const [invoiceNextNumber, setInvoiceNextNumber] = useState(tenant?.invoice_next_number != null ? String(tenant.invoice_next_number) : '1');
+  const [invoiceHeaderNote, setInvoiceHeaderNote] = useState(tenant?.invoice_header_note ?? '');
+  const [invoiceFooterNote, setInvoiceFooterNote] = useState(tenant?.invoice_footer_note ?? '');
+  const [invoicePageSize, setInvoicePageSize] = useState(tenant?.invoice_page_size ?? 'A4');
+  const [logoUploading, setLogoUploading] = useState(false);
 
   useEffect(() => {
     if (tenant?.name !== undefined) setName(tenant.name ?? '');
@@ -18,9 +24,58 @@ export default function Settings() {
     if (tenant?.currency_symbol !== undefined) setCurrencySymbol(tenant.currency_symbol ?? '₹');
     if (tenant?.gstin !== undefined) setGstin(tenant.gstin ?? '');
     if (tenant?.tax_percent != null) setTaxPercent(String(tenant.tax_percent));
-  }, [tenant?.name, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent]);
+    if (tenant?.invoice_prefix !== undefined) setInvoicePrefix(tenant.invoice_prefix ?? 'INV-');
+    if (tenant?.invoice_next_number != null) setInvoiceNextNumber(String(tenant.invoice_next_number));
+    if (tenant?.invoice_header_note !== undefined) setInvoiceHeaderNote(tenant.invoice_header_note ?? '');
+    if (tenant?.invoice_footer_note !== undefined) setInvoiceFooterNote(tenant.invoice_footer_note ?? '');
+    if (tenant?.invoice_page_size !== undefined) setInvoicePageSize(tenant.invoice_page_size ?? 'A4');
+  }, [tenant?.name, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  async function handleLogoFile(e) {
+    const file = e.target?.files?.[0];
+    if (!file || !token) return;
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Logo must be 2MB or smaller', 'error');
+      return;
+    }
+    setLogoUploading(true);
+    setError('');
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(r.result);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const res = await api.post(token, '/api/me/logo', { logo: dataUrl });
+      if (res.tenant) {
+        await refetchMe();
+        showToast('Logo updated', 'success');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to upload logo');
+    } finally {
+      setLogoUploading(false);
+      e.target.value = '';
+    }
+  }
+
+  async function handleRemoveLogo() {
+    if (!token) return;
+    setLogoUploading(true);
+    setError('');
+    try {
+      await api.post(token, '/api/me/logo', { remove: true });
+      await refetchMe();
+      showToast('Logo removed', 'success');
+    } catch (err) {
+      setError(err.message || 'Failed to remove logo');
+    } finally {
+      setLogoUploading(false);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -32,12 +87,22 @@ export default function Settings() {
         setError('Tax % must be between 0 and 100');
         return;
       }
+      const nextNum = parseInt(invoiceNextNumber, 10);
+      if (Number.isNaN(nextNum) || nextNum < 1) {
+        setError('Next invoice number must be at least 1');
+        return;
+      }
       await api.patch(token, '/api/me', {
         name: (name ?? '').trim(),
         currency: (currency ?? '').trim() || 'INR',
         currency_symbol: (currencySymbol ?? '').trim() || undefined,
         gstin: (gstin ?? '').trim() || undefined,
         tax_percent: tax,
+        invoice_prefix: (invoicePrefix ?? 'INV-').trim().slice(0, 20) || 'INV-',
+        invoice_next_number: nextNum,
+        invoice_header_note: (invoiceHeaderNote ?? '').trim().slice(0, 2000) || undefined,
+        invoice_footer_note: (invoiceFooterNote ?? '').trim().slice(0, 2000) || undefined,
+        invoice_page_size: (invoicePageSize === 'Letter' ? 'Letter' : 'A4'),
       });
       await refetchMe();
       showToast('Settings updated', 'success');
@@ -116,6 +181,91 @@ export default function Settings() {
                 onChange={(e) => setTaxPercent(e.target.value)}
               />
             </label>
+          </div>
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Invoice numbering</h3>
+          <div className="form form--grid">
+            <label className="form__label">
+              <span>Invoice prefix</span>
+              <input
+                className="form__input"
+                value={invoicePrefix ?? ''}
+                onChange={(e) => setInvoicePrefix(e.target.value)}
+                placeholder="e.g. INV-, 2025-INV-"
+                maxLength={20}
+              />
+            </label>
+            <label className="form__label">
+              <span>Next invoice number</span>
+              <input
+                type="number"
+                min="1"
+                className="form__input"
+                value={invoiceNextNumber ?? '1'}
+                onChange={(e) => setInvoiceNextNumber(e.target.value)}
+              />
+            </label>
+          </div>
+          <p className="page__muted" style={{ marginTop: '0.5rem', fontSize: '0.875rem' }}>
+            Next invoice will be: <strong>{(invoicePrefix ?? 'INV-').trim() || 'INV-'}{String(parseInt(invoiceNextNumber, 10) || 1).padStart(4, '0')}</strong>
+          </p>
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Invoice branding</h3>
+          <div className="form form--grid">
+            <label className="form__label form__label--full">
+              <span>Header note (on invoice, above Bill to)</span>
+              <textarea
+                className="form__input"
+                rows={2}
+                value={invoiceHeaderNote ?? ''}
+                onChange={(e) => setInvoiceHeaderNote(e.target.value)}
+                placeholder="Optional text or short message"
+                maxLength={2000}
+              />
+            </label>
+            <label className="form__label form__label--full">
+              <span>Footer note (below thank-you)</span>
+              <textarea
+                className="form__input"
+                rows={2}
+                value={invoiceFooterNote ?? ''}
+                onChange={(e) => setInvoiceFooterNote(e.target.value)}
+                placeholder="Optional terms or note"
+                maxLength={2000}
+              />
+            </label>
+            <label className="form__label">
+              <span>Invoice page size</span>
+              <select
+                className="form__input"
+                value={invoicePageSize ?? 'A4'}
+                onChange={(e) => setInvoicePageSize(e.target.value)}
+              >
+                <option value="A4">A4</option>
+                <option value="Letter">Letter</option>
+              </select>
+            </label>
+          </div>
+          <div className="form__label form__label--full" style={{ marginTop: '1rem' }}>
+            <span>Logo (shown on invoice)</span>
+            {tenant?.logo_url ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                <img src={tenant.logo_url} alt="Logo" style={{ maxHeight: 48, maxWidth: 120, objectFit: 'contain' }} />
+                <div>
+                  <label className="btn btn--secondary btn--sm" style={{ marginRight: '0.5rem' }}>
+                    Change
+                    <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="sr-only" onChange={handleLogoFile} />
+                  </label>
+                  <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={handleRemoveLogo} disabled={logoUploading}>
+                    Remove logo
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <label className="btn btn--secondary btn--sm" style={{ marginTop: '0.5rem' }}>
+                Upload logo (PNG, JPEG, GIF, WebP, max 2MB)
+                <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" className="sr-only" onChange={handleLogoFile} />
+              </label>
+            )}
+            {logoUploading && <span className="page__muted" style={{ marginLeft: '0.5rem' }}>Uploading…</span>}
           </div>
           <div className="form__actions" style={{ marginTop: '1rem' }}>
             <button type="submit" className="btn btn--primary" disabled={submitting}>

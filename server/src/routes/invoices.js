@@ -8,22 +8,21 @@ import { createClient } from '@supabase/supabase-js';
 const router = Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
-async function nextInvoiceNumber(tenantId) {
-  const { data: rows } = await supabase
-    .from('invoices')
-    .select('invoice_number')
-    .eq('tenant_id', tenantId)
-    .order('created_at', { ascending: false })
-    .limit(1000);
-  let max = 0;
-  if (rows && rows.length) {
-    for (const r of rows) {
-      const num = parseInt(String(r.invoice_number).replace(/\D/g, ''), 10);
-      if (!Number.isNaN(num) && num > max) max = num;
-    }
+async function getNextInvoiceNumber(tenantId) {
+  const { data: tenantRow, error: tenantErr } = await supabase
+    .from('tenants')
+    .select('invoice_prefix, invoice_next_number')
+    .eq('id', tenantId)
+    .single();
+  if (tenantErr || !tenantRow) {
+    const prefix = 'INV-';
+    const next = 1;
+    return { invoiceNumber: `${prefix}${String(next).padStart(4, '0')}`, nextNumber: next };
   }
-  const next = max + 1;
-  return `INV-${String(next).padStart(4, '0')}`;
+  const prefix = (tenantRow.invoice_prefix ?? 'INV-').toString().trim() || 'INV-';
+  const next = Math.max(1, parseInt(tenantRow.invoice_next_number, 10) || 1);
+  const invoiceNumber = `${prefix}${String(next).padStart(4, '0')}`;
+  return { invoiceNumber, nextNumber: next };
 }
 
 function validateItem(item, index) {
@@ -75,41 +74,63 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ error: 'Customer not found or does not belong to your shop' });
     }
 
+    const gstType = (body.gst_type ?? body.gstType ?? 'intra').toString().toLowerCase() === 'inter' ? 'inter' : 'intra';
+    const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', req.tenantId).single();
+    const tenantTaxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
+
     const items = [];
     for (let i = 0; i < rawItems.length; i++) {
       const v = validateItem(rawItems[i], i);
       if (v.error) return res.status(400).json({ error: v.error });
       let desc = v.description;
       let unitPrice = v.unit_price;
+      let productTaxPercent = null;
+      let hsnSacCode = null;
       const productId = (rawItems[i].productId ?? rawItems[i].product_id)?.toString().trim();
+      let costPrice = 0;
       if (productId) {
         const { data: product } = await supabase
           .from('products')
-          .select('name, price')
+          .select('name, price, tax_percent, hsn_sac_code, last_purchase_price')
           .eq('id', productId)
           .eq('tenant_id', req.tenantId)
           .single();
         if (product) {
           if (!desc) desc = product.name;
           if (unitPrice === undefined || unitPrice === null) unitPrice = Number(product.price);
+          if (product.tax_percent != null) productTaxPercent = Number(product.tax_percent);
+          if (product.hsn_sac_code) hsnSacCode = String(product.hsn_sac_code).trim().slice(0, 20) || null;
+          costPrice = product.last_purchase_price != null ? Number(product.last_purchase_price) : 0;
         }
       }
+      const taxPercentItem = productTaxPercent ?? tenantTaxPercent;
       const amount = Math.round(v.quantity * unitPrice * 100) / 100;
+      const costAmount = Math.round(v.quantity * costPrice * 100) / 100;
+      const itemTax = Math.round(amount * taxPercentItem / 100 * 100) / 100;
+      const cgst = gstType === 'intra' ? Math.round(itemTax / 2 * 100) / 100 : 0;
+      const sgst = gstType === 'intra' ? Math.round((itemTax - cgst) * 100) / 100 : 0;
+      const igst = gstType === 'inter' ? itemTax : 0;
       items.push({
         product_id: productId || null,
         description: desc,
         quantity: v.quantity,
         unit_price: unitPrice,
         amount,
+        cost_price: costPrice,
+        cost_amount: costAmount,
+        tax_percent: taxPercentItem,
+        gst_type: gstType,
+        cgst_amount: cgst,
+        sgst_amount: sgst,
+        igst_amount: igst,
+        hsn_sac_code: hsnSacCode,
       });
     }
-
     const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
-    const invoiceNumber = await nextInvoiceNumber(req.tenantId);
-    const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', req.tenantId).single();
-    const taxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
-    const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
+    const taxAmount = Math.round(items.reduce((s, i) => s + i.cgst_amount + i.sgst_amount + i.igst_amount, 0) * 100) / 100;
     const total = Math.round((subtotal + taxAmount) * 100) / 100;
+    const effectiveTaxPercent = subtotal > 0 ? Math.round(taxAmount / subtotal * 10000) / 100 : tenantTaxPercent;
+    const { invoiceNumber, nextNumber } = await getNextInvoiceNumber(req.tenantId);
 
     const { data: invoice, error: invErr } = await supabase
       .from('invoices')
@@ -120,9 +141,10 @@ router.post('/', async (req, res, next) => {
         invoice_date: invoiceDate,
         status,
         subtotal,
-        tax_percent: taxPercent,
+        tax_percent: effectiveTaxPercent,
         tax_amount: taxAmount,
         total,
+        gst_type: gstType,
       })
       .select()
       .single();
@@ -131,15 +153,32 @@ router.post('/', async (req, res, next) => {
       return res.status(500).json({ error: 'Failed to create invoice' });
     }
 
-    for (const it of items) {
-      const { error: itemErr } = await supabase.from('invoice_items').insert({
+    const itemRow = (it, includeCost) => {
+      const row = {
         invoice_id: invoice.id,
         product_id: it.product_id,
         description: it.description,
         quantity: it.quantity,
         unit_price: it.unit_price,
         amount: it.amount,
-      });
+        tax_percent: it.tax_percent,
+        gst_type: it.gst_type,
+        cgst_amount: it.cgst_amount,
+        sgst_amount: it.sgst_amount,
+        igst_amount: it.igst_amount,
+        hsn_sac_code: it.hsn_sac_code,
+      };
+      if (includeCost) {
+        row.cost_price = it.cost_price;
+        row.cost_amount = it.cost_amount;
+      }
+      return row;
+    };
+    for (const it of items) {
+      let { error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true));
+      if (itemErr && (String(itemErr.message || '').includes('cost_price') || String(itemErr.message || '').includes('cost_amount') || String(itemErr.message || '').includes('does not exist'))) {
+        ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, false)));
+      }
       if (itemErr) {
         console.error(itemErr);
         await supabase.from('invoices').delete().eq('id', invoice.id);
@@ -152,6 +191,7 @@ router.post('/', async (req, res, next) => {
       .select('*, invoice_items(*)')
       .eq('id', invoice.id)
       .single();
+    await supabase.from('tenants').update({ invoice_next_number: nextNumber + 1 }).eq('id', req.tenantId);
     return res.status(201).json(fullInvoice || invoice);
   } catch (err) {
     next(err);
@@ -204,6 +244,17 @@ router.get('/', async (req, res, next) => {
 });
 
 const ALLOWED_NEXT = { draft: ['sent'], sent: ['paid'], paid: [] };
+const PAYMENT_METHODS = ['cash', 'upi', 'bank_transfer'];
+
+async function recomputeInvoiceAmountPaid(invoiceId, tenantId) {
+  const { data: rows } = await supabase.from('payments').select('amount').eq('invoice_id', invoiceId);
+  const amountPaid = (rows || []).reduce((s, r) => s + Number(r.amount || 0), 0);
+  const rounded = Math.round(amountPaid * 100) / 100;
+  const { data: inv } = await supabase.from('invoices').select('total').eq('id', invoiceId).eq('tenant_id', tenantId).single();
+  const total = Number(inv?.total) || 0;
+  const status = rounded >= total ? 'paid' : 'sent';
+  await supabase.from('invoices').update({ amount_paid: rounded, status }).eq('id', invoiceId).eq('tenant_id', tenantId);
+}
 
 router.get('/:id', async (req, res, next) => {
   try {
@@ -220,14 +271,106 @@ router.get('/:id', async (req, res, next) => {
     if (error || !invoice) {
       return res.status(404).json({ error: 'Invoice not found' });
     }
-    const { data: items } = await supabase
-      .from('invoice_items')
-      .select('*')
-      .eq('invoice_id', id)
-      .order('created_at');
+    const [{ data: items }, { data: payments }] = await Promise.all([
+      supabase.from('invoice_items').select('*').eq('invoice_id', id).order('created_at'),
+      supabase.from('payments').select('*').eq('invoice_id', id).eq('tenant_id', req.tenantId).order('paid_at').order('created_at'),
+    ]);
     const customer = Array.isArray(invoice.customers) ? invoice.customers[0] : invoice.customers;
+    const amountPaid = Number(invoice.amount_paid) || 0;
+    const total = Number(invoice.total) || 0;
+    const balance = Math.round((total - amountPaid) * 100) / 100;
     const { customers: _c, ...inv } = invoice;
-    return res.json({ ...inv, customer: customer || null, invoice_items: items || [] });
+    return res.json({
+      ...inv,
+      amount_paid: amountPaid,
+      balance,
+      customer: customer || null,
+      invoice_items: items || [],
+      payments: payments || [],
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/payments', async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const body = req.body || {};
+    const amount = Number(body.amount);
+    if (amount === undefined || Number.isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'amount must be a positive number' });
+    }
+    const method = (body.payment_method ?? body.paymentMethod ?? '').toString().toLowerCase();
+    if (!PAYMENT_METHODS.includes(method)) {
+      return res.status(400).json({ error: 'payment_method must be cash, upi, or bank_transfer' });
+    }
+    const reference = (body.reference ?? '').toString().trim() || null;
+    let paidAt = body.paid_at ?? body.paidAt;
+    if (paidAt) {
+      paidAt = new Date(paidAt);
+      if (Number.isNaN(paidAt.getTime())) paidAt = new Date();
+    } else {
+      paidAt = new Date();
+    }
+    const paidAtDate = paidAt.toISOString().slice(0, 10);
+
+    const { data: invoice, error: invErr } = await supabase
+      .from('invoices')
+      .select('id, total, amount_paid')
+      .eq('id', id)
+      .eq('tenant_id', req.tenantId)
+      .single();
+    if (invErr || !invoice) return res.status(404).json({ error: 'Invoice not found' });
+    const total = Number(invoice.total) || 0;
+    const amountPaid = Number(invoice.amount_paid) || 0;
+    const balance = Math.round((total - amountPaid) * 100) / 100;
+    if (amount > balance) {
+      return res.status(400).json({ error: `Amount exceeds balance due (${balance})` });
+    }
+
+    const amountRounded = Math.round(amount * 100) / 100;
+    const { data: payment, error: insertErr } = await supabase
+      .from('payments')
+      .insert({
+        tenant_id: req.tenantId,
+        invoice_id: id,
+        amount: amountRounded,
+        payment_method: method,
+        reference,
+        paid_at: paidAtDate,
+      })
+      .select()
+      .single();
+    if (insertErr) {
+      console.error(insertErr);
+      return res.status(500).json({ error: 'Failed to record payment' });
+    }
+    await recomputeInvoiceAmountPaid(id, req.tenantId);
+    return res.status(201).json(payment);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/:id/payments/:paymentId', async (req, res, next) => {
+  try {
+    const { id, paymentId } = req.params;
+    const { data: payment, error: fetchErr } = await supabase
+      .from('payments')
+      .select('id')
+      .eq('id', paymentId)
+      .eq('invoice_id', id)
+      .eq('tenant_id', req.tenantId)
+      .single();
+    if (fetchErr || !payment) return res.status(404).json({ error: 'Payment not found' });
+    const { error: delErr } = await supabase.from('payments').delete().eq('id', paymentId).eq('tenant_id', req.tenantId);
+    if (delErr) {
+      console.error(delErr);
+      return res.status(500).json({ error: 'Failed to delete payment' });
+    }
+    await recomputeInvoiceAmountPaid(id, req.tenantId);
+    return res.status(204).end();
   } catch (err) {
     next(err);
   }
@@ -260,33 +403,62 @@ router.patch('/:id', async (req, res, next) => {
       const { data: customer } = await supabase.from('customers').select('id').eq('id', customerId).eq('tenant_id', req.tenantId).single();
       if (!customer) return res.status(400).json({ error: 'Customer not found or does not belong to your shop' });
 
+      const gstType = (body.gst_type ?? body.gstType ?? 'intra').toString().toLowerCase() === 'inter' ? 'inter' : 'intra';
+      const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', req.tenantId).single();
+      const tenantTaxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
+
       const items = [];
       for (let i = 0; i < rawItems.length; i++) {
         const v = validateItem(rawItems[i], i);
         if (v.error) return res.status(400).json({ error: v.error });
         let desc = v.description;
         let unitPrice = v.unit_price;
+        let productTaxPercent = null;
+        let hsnSacCode = null;
         const productId = (rawItems[i].productId ?? rawItems[i].product_id)?.toString().trim();
+        let costPrice = 0;
         if (productId) {
-          const { data: product } = await supabase.from('products').select('name, price').eq('id', productId).eq('tenant_id', req.tenantId).single();
+          const { data: product } = await supabase.from('products').select('name, price, tax_percent, hsn_sac_code, last_purchase_price').eq('id', productId).eq('tenant_id', req.tenantId).single();
           if (product) {
             if (!desc) desc = product.name;
             if (unitPrice == null) unitPrice = Number(product.price);
+            if (product.tax_percent != null) productTaxPercent = Number(product.tax_percent);
+            if (product.hsn_sac_code) hsnSacCode = String(product.hsn_sac_code).trim().slice(0, 20) || null;
+            costPrice = product.last_purchase_price != null ? Number(product.last_purchase_price) : 0;
           }
         }
+        const taxPercentItem = productTaxPercent ?? tenantTaxPercent;
         const amount = Math.round(v.quantity * unitPrice * 100) / 100;
-        items.push({ product_id: productId || null, description: desc, quantity: v.quantity, unit_price: unitPrice, amount });
+        const costAmount = Math.round(v.quantity * costPrice * 100) / 100;
+        const itemTax = Math.round(amount * taxPercentItem / 100 * 100) / 100;
+        const cgst = gstType === 'intra' ? Math.round(itemTax / 2 * 100) / 100 : 0;
+        const sgst = gstType === 'intra' ? Math.round((itemTax - cgst) * 100) / 100 : 0;
+        const igst = gstType === 'inter' ? itemTax : 0;
+        items.push({
+          product_id: productId || null,
+          description: desc,
+          quantity: v.quantity,
+          unit_price: unitPrice,
+          amount,
+          cost_price: costPrice,
+          cost_amount: costAmount,
+          tax_percent: taxPercentItem,
+          gst_type: gstType,
+          cgst_amount: cgst,
+          sgst_amount: sgst,
+          igst_amount: igst,
+          hsn_sac_code: hsnSacCode,
+        });
       }
       const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
-      const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', req.tenantId).single();
-      const taxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
-      const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
+      const taxAmount = Math.round(items.reduce((s, i) => s + i.cgst_amount + i.sgst_amount + i.igst_amount, 0) * 100) / 100;
       const total = Math.round((subtotal + taxAmount) * 100) / 100;
+      const effectiveTaxPercent = subtotal > 0 ? Math.round(taxAmount / subtotal * 10000) / 100 : tenantTaxPercent;
 
       await supabase.from('invoice_items').delete().eq('invoice_id', id);
       const { data: invoice, error: updateErr } = await supabase
         .from('invoices')
-        .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal, tax_percent: taxPercent, tax_amount: taxAmount, total })
+        .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal, tax_percent: effectiveTaxPercent, tax_amount: taxAmount, total, gst_type: gstType })
         .eq('id', id)
         .eq('tenant_id', req.tenantId)
         .select()
@@ -295,15 +467,36 @@ router.patch('/:id', async (req, res, next) => {
         console.error(updateErr);
         return res.status(500).json({ error: 'Failed to update invoice' });
       }
-      for (const it of items) {
-        await supabase.from('invoice_items').insert({
+      const itemRow = (it, includeCost) => {
+        const row = {
           invoice_id: id,
           product_id: it.product_id,
           description: it.description,
           quantity: it.quantity,
           unit_price: it.unit_price,
           amount: it.amount,
-        });
+          tax_percent: it.tax_percent,
+          gst_type: it.gst_type,
+          cgst_amount: it.cgst_amount,
+          sgst_amount: it.sgst_amount,
+          igst_amount: it.igst_amount,
+          hsn_sac_code: it.hsn_sac_code,
+        };
+        if (includeCost) {
+          row.cost_price = it.cost_price;
+          row.cost_amount = it.cost_amount;
+        }
+        return row;
+      };
+      for (const it of items) {
+        let { error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true));
+        if (itemErr && (String(itemErr.message || '').includes('cost_price') || String(itemErr.message || '').includes('cost_amount') || String(itemErr.message || '').includes('does not exist'))) {
+          ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, false)));
+        }
+        if (itemErr) {
+          console.error(itemErr);
+          return res.status(500).json({ error: 'Failed to update invoice items' });
+        }
       }
       const { data: itemsData } = await supabase.from('invoice_items').select('*').eq('invoice_id', id).order('created_at');
       return res.json({ ...invoice, invoice_items: itemsData || [] });

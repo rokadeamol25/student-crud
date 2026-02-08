@@ -31,31 +31,72 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid from or to date' });
   }
 
-  const { data: rows, error } = await supabase
+  const { data: invoices, error: invErr } = await supabase
     .from('invoices')
-    .select('subtotal, tax_amount')
+    .select('id, invoice_date')
     .eq('tenant_id', tenantId)
-    .eq('status', 'paid')
+    .in('status', ['sent', 'paid'])
     .gte('invoice_date', from)
     .lte('invoice_date', to);
-
-  if (error) {
-    console.error(error);
+  if (invErr) {
+    console.error(invErr);
     return res.status(500).json({ error: 'Failed to fetch tax summary' });
   }
-
-  let subtotal = 0;
-  let taxAmount = 0;
-  for (const r of rows || []) {
-    subtotal += Number(r.subtotal ?? r.total ?? 0);
-    taxAmount += Number(r.tax_amount ?? 0);
+  const invoiceIds = (invoices || []).map((i) => i.id);
+  if (invoiceIds.length === 0) {
+    return res.status(200).json({
+      period: { from, to },
+      byMonth: [],
+      totals: { cgst: 0, sgst: 0, igst: 0, totalTax: 0 },
+      invoiceCount: 0,
+    });
   }
 
+  const { data: items, error: itemsErr } = await supabase
+    .from('invoice_items')
+    .select('invoice_id, cgst_amount, sgst_amount, igst_amount')
+    .in('invoice_id', invoiceIds);
+  if (itemsErr) {
+    console.error(itemsErr);
+    return res.status(500).json({ error: 'Failed to fetch tax details' });
+  }
+  const invByDate = Object.fromEntries((invoices || []).map((i) => [i.id, i.invoice_date]));
+  const byMonth = {};
+  let totalCgst = 0, totalSgst = 0, totalIgst = 0;
+  for (const row of items || []) {
+    const date = invByDate[row.invoice_id];
+    if (!date) continue;
+    const month = String(date).slice(0, 7);
+    if (!byMonth[month]) byMonth[month] = { month, cgst: 0, sgst: 0, igst: 0 };
+    const cgst = Number(row.cgst_amount) || 0;
+    const sgst = Number(row.sgst_amount) || 0;
+    const igst = Number(row.igst_amount) || 0;
+    byMonth[month].cgst += cgst;
+    byMonth[month].sgst += sgst;
+    byMonth[month].igst += igst;
+    totalCgst += cgst;
+    totalSgst += sgst;
+    totalIgst += igst;
+  }
+  const byMonthList = Object.values(byMonth)
+    .map((r) => ({
+      month: r.month,
+      cgst: Math.round(r.cgst * 100) / 100,
+      sgst: Math.round(r.sgst * 100) / 100,
+      igst: Math.round(r.igst * 100) / 100,
+      totalTax: Math.round((r.cgst + r.sgst + r.igst) * 100) / 100,
+    }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
   return res.status(200).json({
-    subtotal: Math.round(subtotal * 100) / 100,
-    taxAmount: Math.round(taxAmount * 100) / 100,
-    invoiceCount: (rows || []).length,
-    from,
-    to,
+    period: { from, to },
+    byMonth: byMonthList,
+    totals: {
+      cgst: Math.round(totalCgst * 100) / 100,
+      sgst: Math.round(totalSgst * 100) / 100,
+      igst: Math.round(totalIgst * 100) / 100,
+      totalTax: Math.round((totalCgst + totalSgst + totalIgst) * 100) / 100,
+    },
+    invoiceCount: invoices.length,
   });
 }

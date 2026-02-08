@@ -45,10 +45,23 @@ export default async function handler(req, res) {
         .single();
       if (error || !invoice) return res.status(404).json({ error: 'Invoice not found' });
 
-      const { data: items } = await supabase.from('invoice_items').select('*').eq('invoice_id', id).order('created_at');
+      const [{ data: items }, { data: payments }] = await Promise.all([
+        supabase.from('invoice_items').select('*').eq('invoice_id', id).order('created_at'),
+        supabase.from('payments').select('*').eq('invoice_id', id).eq('tenant_id', tenantId).order('paid_at').order('created_at'),
+      ]);
       const customer = Array.isArray(invoice.customers) ? invoice.customers[0] : invoice.customers;
+      const amountPaid = Number(invoice.amount_paid) || 0;
+      const total = Number(invoice.total) || 0;
+      const balance = Math.round((total - amountPaid) * 100) / 100;
       const { customers: _c, ...inv } = invoice;
-      return res.json({ ...inv, customer: customer || null, invoice_items: items || [] });
+      return res.json({
+        ...inv,
+        amount_paid: amountPaid,
+        balance,
+        customer: customer || null,
+        invoice_items: items || [],
+        payments: payments || [],
+      });
     }
 
     if (req.method === 'PATCH') {
@@ -77,28 +90,57 @@ export default async function handler(req, res) {
         const { data: customer } = await supabase.from('customers').select('id').eq('id', customerId).eq('tenant_id', tenantId).single();
         if (!customer) return res.status(400).json({ error: 'Customer not found or does not belong to your shop' });
 
+        const gstType = (body.gst_type ?? body.gstType ?? 'intra').toString().toLowerCase() === 'inter' ? 'inter' : 'intra';
+        const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', tenantId).single();
+        const tenantTaxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
+
         const items = [];
         for (let i = 0; i < rawItems.length; i++) {
           const v = validateItem(rawItems[i], i);
           if (v.error) return res.status(400).json({ error: v.error });
           let desc = v.description;
           let unitPrice = v.unit_price;
+          let productTaxPercent = null;
+          let hsnSacCode = null;
           const productId = (rawItems[i].productId ?? rawItems[i].product_id)?.toString().trim();
+          let costPrice = 0;
           if (productId) {
-            const { data: product } = await supabase.from('products').select('name, price').eq('id', productId).eq('tenant_id', tenantId).single();
+            const { data: product } = await supabase.from('products').select('name, price, tax_percent, hsn_sac_code, last_purchase_price').eq('id', productId).eq('tenant_id', tenantId).single();
             if (product) {
               if (!desc) desc = product.name;
               if (unitPrice == null) unitPrice = Number(product.price);
+              if (product.tax_percent != null) productTaxPercent = Number(product.tax_percent);
+              if (product.hsn_sac_code) hsnSacCode = String(product.hsn_sac_code).trim().slice(0, 20) || null;
+              costPrice = product.last_purchase_price != null ? Number(product.last_purchase_price) : 0;
             }
           }
+          const taxPercentItem = productTaxPercent ?? tenantTaxPercent;
           const amount = Math.round(v.quantity * unitPrice * 100) / 100;
-          items.push({ product_id: productId || null, description: desc, quantity: v.quantity, unit_price: unitPrice, amount });
+          const costAmount = Math.round(v.quantity * costPrice * 100) / 100;
+          const itemTax = Math.round(amount * taxPercentItem / 100 * 100) / 100;
+          const cgst = gstType === 'intra' ? Math.round(itemTax / 2 * 100) / 100 : 0;
+          const sgst = gstType === 'intra' ? Math.round((itemTax - cgst) * 100) / 100 : 0;
+          const igst = gstType === 'inter' ? itemTax : 0;
+          items.push({
+            product_id: productId || null,
+            description: desc,
+            quantity: v.quantity,
+            unit_price: unitPrice,
+            amount,
+            cost_price: costPrice,
+            cost_amount: costAmount,
+            tax_percent: taxPercentItem,
+            gst_type: gstType,
+            cgst_amount: cgst,
+            sgst_amount: sgst,
+            igst_amount: igst,
+            hsn_sac_code: hsnSacCode,
+          });
         }
         const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
-        const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', tenantId).single();
-        const taxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
-        const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
+        const taxAmount = Math.round(items.reduce((s, i) => s + i.cgst_amount + i.sgst_amount + i.igst_amount, 0) * 100) / 100;
         const total = Math.round((subtotal + taxAmount) * 100) / 100;
+        const effectiveTaxPercent = subtotal > 0 ? Math.round(taxAmount / subtotal * 10000) / 100 : tenantTaxPercent;
 
         const { error: delErr } = await supabase.from('invoice_items').delete().eq('invoice_id', id);
         if (delErr) {
@@ -107,7 +149,7 @@ export default async function handler(req, res) {
         }
         const { data: invoice, error: updateErr } = await supabase
           .from('invoices')
-          .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal, tax_percent: taxPercent, tax_amount: taxAmount, total })
+          .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal, tax_percent: effectiveTaxPercent, tax_amount: taxAmount, total, gst_type: gstType })
           .eq('id', id)
           .eq('tenant_id', tenantId)
           .select()
@@ -116,15 +158,32 @@ export default async function handler(req, res) {
           console.error(updateErr);
           return res.status(500).json({ error: 'Failed to update invoice' });
         }
-        for (const it of items) {
-          const { error: itemErr } = await supabase.from('invoice_items').insert({
+        const itemRow = (it, includeCost) => {
+          const row = {
             invoice_id: id,
             product_id: it.product_id,
             description: it.description,
             quantity: it.quantity,
             unit_price: it.unit_price,
             amount: it.amount,
-          });
+            tax_percent: it.tax_percent,
+            gst_type: it.gst_type,
+            cgst_amount: it.cgst_amount,
+            sgst_amount: it.sgst_amount,
+            igst_amount: it.igst_amount,
+            hsn_sac_code: it.hsn_sac_code,
+          };
+          if (includeCost) {
+            row.cost_price = it.cost_price;
+            row.cost_amount = it.cost_amount;
+          }
+          return row;
+        };
+        for (const it of items) {
+          let itemErr = (await supabase.from('invoice_items').insert(itemRow(it, true))).error;
+          if (itemErr && (String(itemErr.message || '').includes('cost_price') || String(itemErr.message || '').includes('cost_amount') || String(itemErr.message || '').includes('does not exist'))) {
+            itemErr = (await supabase.from('invoice_items').insert(itemRow(it, false))).error;
+          }
           if (itemErr) {
             console.error(itemErr);
             return res.status(500).json({ error: 'Failed to update invoice items' });

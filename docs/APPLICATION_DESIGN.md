@@ -1,8 +1,9 @@
 # Multi-Tenant Billing Application — Comprehensive Design Document
 
-**Version:** Post–Tier 3 (MVP + Pagination, Currency/GST/Tax, CSV Export)  
-**Stack:** React (Vite), Supabase (Auth + PostgreSQL), Vercel (frontend + serverless API), optional Express (local dev)  
-**Audience:** Small shop owners; one login = one shop; full tenant data isolation.
+**Version:** Post–Stability & Trust (Phases 1–3 implemented; Phase 4 planned)  
+**Stack:** React (Vite), Supabase (Auth + PostgreSQL + Storage), Vercel (frontend + serverless API), optional Express (local dev)  
+**Audience:** Small shop owners; one login = one shop; full tenant data isolation.  
+**Related:** [STABILITY_AND_TRUST_PLAN.md](./STABILITY_AND_TRUST_PLAN.md) — implementation plan for UX reliability, invoice numbering, PDF/print, and data safety.
 
 ---
 
@@ -16,7 +17,10 @@ A multi-tenant web app that lets each shop owner:
 - **Manage products** (name, price, unit) with search and pagination.
 - **Manage customers** (name, email, phone, address) with search and pagination.
 - **Create and manage invoices** (draft → sent → paid): line items, optional product link, subtotal/tax/total, print view, export to CSV.
-- **Configure shop** (name, currency, currency symbol, GSTIN, tax %) in Settings.
+- **Configure shop** (name, currency, currency symbol, GSTIN, tax %; invoice numbering: prefix, next number; invoice branding: header/footer notes, logo, page size A4/Letter) in Settings.
+- **Print and PDF:** Branded invoice layout (header/footer notes, logo), page size (A4/Letter), browser Print and **Download PDF** (client-side via html2pdf.js).
+
+**Stability & Trust (implemented):** Confirm dialogs for delete and status changes; empty-state screens for products, customers, invoices; loading skeletons for lists and invoice form; global 401 handling (session expired → logout + redirect); autosave of draft invoices. Invoice numbers are tenant-controlled (prefix + next number). **Planned (Phase 4):** Soft delete for products/customers, restore, read-only paid invoices.
 
 All data is scoped by tenant (shop). The backend **never** trusts `tenant_id` from the client; it is always resolved from the authenticated user.
 
@@ -53,6 +57,7 @@ Frontend talks to one base URL (`VITE_API_URL`). All tenant-scoped requests use 
 │  - Auth: auth.users (identities), JWT issuance                           │
 │  - PostgreSQL: tenants, users, products, customers, invoices,            │
 │                invoice_items (all tenant-scoped)                          │
+│  - Storage: tenant-assets (public bucket for tenant logos)                │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -75,7 +80,7 @@ Supabase Auth owns `auth.users`; we do not define it. Our tables live in `public
 
 ### 2.2 Full Column Reference
 
-**tenants** (from `00001_initial_schema.sql` + `00002_currency_gst_tax.sql`)
+**tenants** (from `00001_initial_schema.sql` through `00004_invoice_branding.sql`)
 
 | Column | Type | Constraints / Notes |
 |--------|------|----------------------|
@@ -87,6 +92,12 @@ Supabase Auth owns `auth.users`; we do not define it. Our tables live in `public
 | currency_symbol | TEXT | nullable (e.g. ₹, $) |
 | gstin | TEXT | nullable (India GSTIN) |
 | tax_percent | NUMERIC(5,2) | NOT NULL, default 0, CHECK 0–100 |
+| invoice_prefix | TEXT | NOT NULL, default 'INV-' (e.g. INV-, 2025-INV-) |
+| invoice_next_number | INTEGER | NOT NULL, default 1, CHECK >= 1 (incremented on new invoice) |
+| invoice_header_note | TEXT | nullable; shown above “Bill to” on print/PDF |
+| invoice_footer_note | TEXT | nullable; shown below thank-you on print/PDF |
+| logo_url | TEXT | nullable; public URL (e.g. Supabase Storage) |
+| invoice_page_size | TEXT | NOT NULL, default 'A4', CHECK IN ('A4', 'Letter') |
 
 **users**
 
@@ -229,18 +240,29 @@ Base path: `/api`. All authenticated endpoints require `Authorization: Bearer <S
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | /api/me | Required | Return current user and tenant (including currency, gstin, tax_percent) |
-| PATCH | /api/me | Required | Update tenant: name, currency, currency_symbol, gstin, tax_percent |
+| GET | /api/me | Required | Return current user and tenant (all settings below) |
+| PATCH | /api/me | Required | Update tenant: name, currency, invoice settings, branding |
+| POST | /api/me/logo | Required | Upload or remove tenant logo |
 
 **GET response:**  
-`{ user: { id, email }, tenant: { id, name, slug, currency, currency_symbol, gstin, tax_percent } }`
+`{ user: { id, email }, tenant: { id, name, slug, currency, currency_symbol, gstin, tax_percent, invoice_prefix, invoice_next_number, invoice_header_note, invoice_footer_note, logo_url, invoice_page_size } }`  
+- Defaults: invoice_prefix 'INV-', invoice_next_number 1, invoice_page_size 'A4'; optional notes/logo null.
 
 **PATCH body (all optional):**  
-`{ name?, currency?, currency_symbol?, gstin?, tax_percent? }`  
+`{ name?, currency?, currency_symbol?, gstin?, tax_percent?, invoice_prefix?, invoice_next_number?, invoice_header_note?, invoice_footer_note?, invoice_page_size? }`  
 - tax_percent: number 0–100.  
-- Empty strings for optional fields stored as null.
+- invoice_prefix: string, max 20 chars; default 'INV-'.  
+- invoice_next_number: integer >= 1.  
+- invoice_header_note, invoice_footer_note: string, max 2000 chars; empty → null.  
+- invoice_page_size: 'A4' or 'Letter'.  
+- Empty strings for optional text fields stored as null.
 
-**Response:** Same shape as GET (updated user + tenant).
+**POST /api/me/logo**  
+- **Upload:** Body `{ logo: "data:image/...;base64,..." }`. Allowed types: PNG, JPEG, GIF, WebP; max 2MB. Uploads to Supabase Storage bucket `tenant-assets` at `{tenant_id}/logo.{ext}`, sets tenant.logo_url to public URL.  
+- **Remove:** Body `{ remove: true }`. Clears logo_url and optionally deletes object from storage.  
+- **Response:** `{ tenant: Tenant }` with full tenant fields.
+
+**PATCH response:** Same shape as GET (updated user + tenant).
 
 ---
 
@@ -301,7 +323,7 @@ Otherwise response: `{ data: Invoice[], total: number }`.
 
 **POST body:**  
 `{ customerId, invoiceDate, status?: 'draft', items: [ { productId?, description, quantity, unitPrice } ] }`  
-- Backend: next invoice_number per tenant; validate customer; resolve product name/price when productId given; compute subtotal; load tenant tax_percent → tax_amount, total; insert invoice + invoice_items.
+- Backend: **invoice_number** = tenant.invoice_prefix + zero-padded tenant.invoice_next_number (e.g. INV-0001); then increment tenant.invoice_next_number. Validate customer; resolve product name/price when productId given; compute subtotal; load tenant tax_percent → tax_amount, total; insert invoice + invoice_items.
 
 **PATCH body (one of):**  
 - **Status only:** `{ status: 'sent' | 'paid' }`. Allowed transitions: draft→sent, sent→paid.  
@@ -321,6 +343,8 @@ Response: invoice object with `customer` (id, name, email, phone, address) and `
 - **React 18**, **Vite**, **React Router 6**
 - **Supabase JS** (auth only; no direct DB from browser)
 - **Context:** AuthContext (session, user, tenant, login, signUp, signupComplete, logout, token, refetchMe), ToastContext (showToast)
+- **Shared components:** ConfirmDialog (destructive/status confirmations), EmptyState (empty lists), ListSkeleton / InvoiceListSkeleton (loading), SessionExpiredHandler (wired to API client for 401 → logout + redirect)
+- **API client:** On 401 from any `/api/*` call, invokes setSessionExpiredHandler (sign out + redirect to login); optional “Session expired” toast
 
 ### 5.2 Routes
 
@@ -336,8 +360,8 @@ Response: invoice object with `customer` (id, name, email, phone, address) and `
 | /invoices | Invoices | List (filter by status, pagination), Export CSV, links to new/edit/print |
 | /invoices/new | CreateInvoice | Create draft invoice (customer, date, line items; subtotal/tax/total) |
 | /invoices/:id/edit | EditInvoice | Edit draft only (same form as create) |
-| /invoices/:id/print | InvoicePrint | Print view; Mark as Sent/Paid; Delete draft; Print/PDF |
-| /settings | Settings | Shop name; currency code/symbol; GSTIN; tax % (PATCH /api/me) |
+| /invoices/:id/print | InvoicePrint | Print view; header/footer notes, logo, page size; Mark as Sent/Paid; Delete draft; Print; Download PDF |
+| /settings | Settings | Shop name; currency, GSTIN, tax %; invoice numbering (prefix, next number); invoice branding (header/footer notes, page size, logo); PATCH /api/me, POST /api/me/logo |
 | * | Navigate to / | Fallback |
 
 ### 5.3 API Client (`src/api/client.js`)
@@ -354,13 +378,13 @@ Response: invoice object with `customer` (id, name, email, phone, address) and `
 ### 5.5 Page-Level Features
 
 - **Dashboard:** Cards linking to Products, Customers, Invoices, New invoice.
-- **Products:** Search (q), pagination (limit/offset, 20 per page); add form; table with edit/delete; modal for edit. Prices shown with formatMoney(tenant). List uses `res.data` and `res.total`.
-- **Customers:** Same pattern: search, pagination (20), add/edit (modal). List uses `res.data` and `res.total`.
-- **Invoices:** Status filter (All/Draft/Sent/Paid); pagination (20); Export CSV button (GET ?format=csv); cards + table; Edit/Delete (draft only), View/Print. Totals with formatMoney(tenant).
-- **Create invoice:** Customer dropdown, date; line items (optional product, description, qty, unit price); subtotal, tax %, tax amount, total from tenant.tax_percent; POST then redirect to print view. Customers/products fetched with ?limit=500; use res.data.
-- **Edit invoice:** Same form; load invoice; only draft; PATCH then redirect to print. Same tax/currency behavior.
-- **Invoice print:** Shop name; GSTIN if set; Bill to; items table; subtotal/tax/total breakdown when tax > 0; Mark as Sent/Paid; Delete draft; Print/Save as PDF (browser print).
-- **Settings:** Shop name, slug (read-only); currency code, currency symbol, GSTIN, tax %; Save → PATCH /api/me; null-safe for all fields (no .trim() on null).
+- **Products:** Search (q), pagination (limit/offset, 20 per page); **empty state** when no products; **list skeleton** while loading; add form; table with edit/delete; **confirm dialog** for delete. Prices with formatMoney(tenant). List uses `res.data` and `res.total`.
+- **Customers:** Same pattern: **empty state**, **list skeleton**, search, pagination (20), add/edit (modal), **confirm dialog** for delete.
+- **Invoices:** **Empty state** when none; **list skeleton** while loading; status filter (All/Draft/Sent/Paid); pagination (20); Export CSV (GET ?format=csv); Edit/Delete (draft only) with **confirm dialogs**; View/Print. Totals with formatMoney(tenant).
+- **Create invoice:** Customer dropdown, date; line items (optional product, description, qty, unit price); subtotal, tax %, tax amount, total from tenant.tax_percent. **Autosave:** after first POST (create draft), debounced PATCH on form changes; “Saving…” / “Saved at HH:mm”. POST then redirect to print view. Customers/products with ?limit=500.
+- **Edit invoice:** Same form; load invoice; only draft; **autosave** (debounced PATCH). Same tax/currency behavior.
+- **Invoice print:** **Header:** tenant logo (if logo_url), shop name, GSTIN; **header note** above “Bill to” if set; Bill to; items table; subtotal/tax/total; **footer note** below “Thank you” if set. **Page size:** A4 or Letter from tenant (injected `@page` for print). **Actions:** Mark as Sent/Paid and Delete draft via **confirm dialogs**; **Print** (browser); **Download PDF** (client-side html2pdf.js, filename e.g. invoice-INV-0001.pdf).
+- **Settings:** Shop name, slug (read-only); currency code, symbol, GSTIN, tax %; **Invoice numbering:** prefix, next number (next invoice preview); **Invoice branding:** header note, footer note (textareas), page size (A4/Letter), **logo** (file upload or remove; POST /api/me/logo). Save → PATCH /api/me; null-safe for all fields.
 
 ### 5.6 List Response Handling
 
@@ -396,7 +420,15 @@ All list endpoints return `{ data: T[], total: number }`. Frontend uses `data` f
 
 ### 7.2 Migrations
 
-- Apply in order: `supabase/migrations/00001_initial_schema.sql`, then `00002_currency_gst_tax.sql` (adds currency, gstin, tax_percent on tenants; tax_percent, tax_amount on invoices). Run in Supabase SQL Editor or via CLI.
+- Apply in order:
+  1. `00001_initial_schema.sql` — tenants, users, products, customers, invoices, invoice_items.
+  2. `00002_currency_gst_tax.sql` — currency, gstin, tax_percent on tenants; tax_percent, tax_amount on invoices.
+  3. `00003_invoice_numbering.sql` — tenants: invoice_prefix, invoice_next_number; backfill from existing invoice numbers.
+  4. `00004_invoice_branding.sql` — tenants: invoice_header_note, invoice_footer_note, logo_url, invoice_page_size (A4/Letter).
+
+Run in Supabase SQL Editor or via CLI.
+
+**Storage:** Create a **public** bucket named **tenant-assets** in Supabase Dashboard → Storage (required for logo upload).
 
 ### 7.3 Vercel
 
@@ -414,8 +446,22 @@ All list endpoints return `{ data: T[], total: number }`. Frontend uses `data` f
 
 ---
 
-## 9. Future Enhancements (from roadmap)
+## 9. Stability, Trust & Daily Usability
 
+The [STABILITY_AND_TRUST_PLAN.md](./STABILITY_AND_TRUST_PLAN.md) defines four phases. Current status:
+
+| Phase | Area | Status |
+|-------|------|--------|
+| **1** | UX & Reliability | Implemented: confirm dialogs, empty states, loading skeletons, global 401 → logout, autosave draft invoices |
+| **2** | Invoice Numbering | Implemented: tenant prefix + next_number, Settings UI, backend uses them on POST /api/invoices |
+| **3** | PDF & Print | Implemented: header/footer notes, logo upload (tenant-assets), page size A4/Letter, Download PDF (html2pdf.js) |
+| **4** | Data Safety | Planned: soft delete (products, customers), restore, read-only paid invoices |
+
+---
+
+## 10. Future Enhancements (from roadmap)
+
+- **Phase 4:** Soft delete products/customers, restore recently deleted, read-only paid invoices (see §9).
 - Multiple users per tenant (invite, roles).
 - Subdomain or path per tenant.
 - Payment gateway integration (mark paid via webhook).
@@ -425,4 +471,4 @@ All list endpoints return `{ data: T[], total: number }`. Frontend uses `data` f
 
 ---
 
-*This document reflects the application state after Tier 3 (pagination, currency/GST/tax, CSV export) and serves as the single reference for architecture, data model, APIs, and frontend behavior.*
+*This document reflects the application state after the Stability & Trust plan (Phases 1–3) and serves as the single reference for architecture, data model, APIs, and frontend behavior.*

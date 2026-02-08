@@ -16,7 +16,10 @@ function validateCreate(body) {
     return { error: 'price is required and must be >= 0' };
   }
   const unit = (body?.unit ?? '').toString().trim().slice(0, 50) || null;
-  return { name, price, unit };
+  const hsnSacCode = (body?.hsn_sac_code ?? body?.hsnSacCode ?? '').toString().trim().slice(0, 20) || null;
+  const p = Number(body?.tax_percent);
+  const taxPercent = (body?.tax_percent !== undefined && body?.tax_percent !== null && !Number.isNaN(p) && p >= 0 && p <= 100) ? p : null;
+  return { name, price, unit, hsn_sac_code: hsnSacCode, tax_percent: taxPercent };
 }
 
 router.post('/', async (req, res, next) => {
@@ -32,6 +35,8 @@ router.post('/', async (req, res, next) => {
         name: validated.name,
         price: validated.price,
         unit: validated.unit,
+        hsn_sac_code: validated.hsn_sac_code,
+        tax_percent: validated.tax_percent,
       })
       .select()
       .single();
@@ -100,6 +105,13 @@ router.patch('/:id', async (req, res, next) => {
     }
     if (body.unit !== undefined) {
       updates.unit = (body.unit ?? '').toString().trim().slice(0, 50) || null;
+    }
+    if (body.hsn_sac_code !== undefined || body.hsnSacCode !== undefined) {
+      updates.hsn_sac_code = (body.hsn_sac_code ?? body.hsnSacCode ?? '').toString().trim().slice(0, 20) || null;
+    }
+    if (body.tax_percent !== undefined) {
+      const p = Number(body.tax_percent);
+      updates.tax_percent = (Number.isNaN(p) || p < 0 || p > 100) ? null : p;
     }
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
     const { data, error } = await supabase

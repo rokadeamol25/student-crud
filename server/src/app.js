@@ -10,6 +10,8 @@ import meRoutes from './routes/me.js';
 import productRoutes from './routes/products.js';
 import customerRoutes from './routes/customers.js';
 import invoiceRoutes from './routes/invoices.js';
+import supplierRoutes from './routes/suppliers.js';
+import purchaseBillRoutes from './routes/purchaseBills.js';
 import reportRoutes from './routes/reports.js';
 
 const app = express();
@@ -31,6 +33,8 @@ app.use('/api/me', authMiddleware, meRoutes);
 app.use('/api/products', authMiddleware, productRoutes);
 app.use('/api/customers', authMiddleware, customerRoutes);
 app.use('/api/invoices', authMiddleware, invoiceRoutes);
+app.use('/api/suppliers', authMiddleware, supplierRoutes);
+app.use('/api/purchase-bills', authMiddleware, purchaseBillRoutes);
 app.use('/api/reports', authMiddleware, reportRoutes);
 
 // 404

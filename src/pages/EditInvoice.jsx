@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ListSkeleton from '../components/ListSkeleton';
+
+const AUTOSAVE_DEBOUNCE_MS = 2500;
 
 const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0 });
 
@@ -25,10 +28,52 @@ export default function EditInvoice() {
   const [products, setProducts] = useState([]);
   const [customerId, setCustomerId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState('');
+  const [gstType, setGstType] = useState('intra');
   const [items, setItems] = useState([emptyItem()]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState('idle');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [loadedInvoice, setLoadedInvoice] = useState(null);
+  const debounceRef = useRef(null);
+  const initialLoadRef = useRef(false);
+
+  const canAutosave = !loading && customerId && invoiceDate && items.length > 0 &&
+    items.some((it) => (it.description || '').trim() || it.productId);
+
+  const performSave = useCallback(async () => {
+    if (!token || !id || !canAutosave) return;
+    setSaveStatus('saving');
+    try {
+      await api.patch(token, `/api/invoices/${id}`, {
+        customerId,
+        invoiceDate,
+        gst_type: gstType,
+        items: items.map((it) => ({
+          productId: it.productId || undefined,
+          description: (it.description || '').trim() || 'Item',
+          quantity: Number(it.quantity) || 1,
+          unitPrice: Number(it.unitPrice) || 0,
+        })),
+      });
+      setSaveStatus('saved');
+      setLastSavedAt(new Date());
+    } catch (e) {
+      setSaveStatus('idle');
+      setError(e.message || e.data?.error || 'Autosave failed');
+    }
+  }, [token, id, customerId, invoiceDate, gstType, items, canAutosave]);
+
+  useEffect(() => {
+    if (!canAutosave || !initialLoadRef.current) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      performSave();
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [customerId, invoiceDate, items, canAutosave, performSave]);
 
   useEffect(() => {
     if (!token || !id) return;
@@ -52,8 +97,11 @@ export default function EditInvoice() {
         }
         setCustomerId(inv.customer_id || inv.customer?.id || '');
         setInvoiceDate(inv.invoice_date || '');
+        setGstType(inv.gst_type === 'inter' ? 'inter' : 'intra');
         const invItems = inv.invoice_items || [];
         setItems(invItems.length ? invItems.map(itemFromRow) : [emptyItem()]);
+        setLoadedInvoice(inv);
+        initialLoadRef.current = true;
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -95,6 +143,7 @@ export default function EditInvoice() {
       await api.patch(token, `/api/invoices/${id}`, {
         customerId,
         invoiceDate,
+        gst_type: gstType,
         items: items.map((it) => ({
           productId: it.productId || undefined,
           description: (it.description || '').trim() || 'Item',
@@ -114,7 +163,11 @@ export default function EditInvoice() {
   if (loading) {
     return (
       <div className="page">
+        <h1 className="page__title">Edit invoice</h1>
         <p className="page__muted">Loading invoice…</p>
+        <div className="card page__section">
+          <ListSkeleton rows={5} columns={3} />
+        </div>
       </div>
     );
   }
@@ -122,6 +175,11 @@ export default function EditInvoice() {
   return (
     <div className="page">
       <h1 className="page__title">Edit invoice</h1>
+      {(saveStatus === 'saving' || saveStatus === 'saved') && (
+        <p className="page__muted invoice-form__autosave" style={{ marginBottom: '0.5rem' }}>
+          {saveStatus === 'saving' ? 'Saving…' : lastSavedAt ? `Saved at ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Saved'}
+        </p>
+      )}
       {error && <div className="page__error">{error}</div>}
       <form onSubmit={handleSubmit} className="card page__section">
         <div className="form form--grid">
@@ -148,6 +206,17 @@ export default function EditInvoice() {
               onChange={(e) => setInvoiceDate(e.target.value)}
               required
             />
+          </label>
+          <label className="form__label">
+            <span>GST type</span>
+            <select
+              className="form__input"
+              value={gstType}
+              onChange={(e) => setGstType(e.target.value)}
+            >
+              <option value="intra">Intra-state (CGST + SGST)</option>
+              <option value="inter">Inter-state (IGST)</option>
+            </select>
           </label>
         </div>
         <h3 className="invoice-form__items-title">Items</h3>
@@ -283,6 +352,20 @@ export default function EditInvoice() {
             <p className="invoice-form__total">Tax ({taxPercent}%): {formatMoney(taxAmount, tenant)}</p>
           )}
           <p className="invoice-form__total"><strong>Total: {formatMoney(total, tenant)}</strong></p>
+          {(() => {
+            const invItems = loadedInvoice?.invoice_items;
+            if (!invItems?.length) return null;
+            const costTotal = invItems.reduce((s, row) => s + (Number(row.cost_amount) || 0), 0);
+            const grossProfit = total - costTotal;
+            const profitPct = total > 0 ? (grossProfit / total * 100) : 0;
+            return (
+              <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', fontSize: '0.9rem', color: 'var(--muted)' }}>
+                <p className="invoice-form__total">Cost total: {formatMoney(costTotal, tenant)}</p>
+                <p className="invoice-form__total">Gross profit: {formatMoney(grossProfit, tenant)}</p>
+                <p className="invoice-form__total">Profit %: {profitPct.toFixed(1)}%</p>
+              </div>
+            );
+          })()}
         </div>
         <div className="form__actions">
           <Link to={`/invoices/${id}/print`} className="btn btn--secondary">

@@ -7,7 +7,11 @@ import { createClient } from '@supabase/supabase-js';
 
 const router = Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const tenantFields = 'id, name, slug, currency, currency_symbol, gstin, tax_percent';
+const tenantFields = 'id, name, slug, currency, currency_symbol, gstin, tax_percent, invoice_prefix, invoice_next_number, invoice_header_note, invoice_footer_note, logo_url, invoice_page_size';
+const BUCKET = 'tenant-assets';
+const MAX_SIZE_BYTES = 2 * 1024 * 1024;
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 
 router.get('/', async (req, res, next) => {
   try {
@@ -24,7 +28,17 @@ router.get('/', async (req, res, next) => {
       .single();
     return res.json({
       user: { id: user.id, email: user.email },
-      tenant: tenant ? { ...tenant, currency: tenant.currency || 'INR', tax_percent: tenant.tax_percent != null ? Number(tenant.tax_percent) : 0 } : null,
+      tenant: tenant ? {
+        ...tenant,
+        currency: tenant.currency || 'INR',
+        tax_percent: tenant.tax_percent != null ? Number(tenant.tax_percent) : 0,
+        invoice_prefix: tenant.invoice_prefix ?? 'INV-',
+        invoice_next_number: tenant.invoice_next_number != null ? Number(tenant.invoice_next_number) : 1,
+        invoice_header_note: tenant.invoice_header_note ?? null,
+        invoice_footer_note: tenant.invoice_footer_note ?? null,
+        logo_url: tenant.logo_url ?? null,
+        invoice_page_size: tenant.invoice_page_size ?? 'A4',
+      } : null,
     });
   } catch (err) {
     next(err);
@@ -49,6 +63,22 @@ router.patch('/', async (req, res, next) => {
       if (Number.isNaN(p) || p < 0 || p > 100) return res.status(400).json({ error: 'tax_percent must be 0–100' });
       updates.tax_percent = p;
     }
+    if (body.invoice_prefix !== undefined) {
+      const prefix = (body.invoice_prefix ?? 'INV-').toString().trim().slice(0, 20) || 'INV-';
+      updates.invoice_prefix = prefix;
+    }
+    if (body.invoice_next_number !== undefined) {
+      const n = parseInt(body.invoice_next_number, 10);
+      if (Number.isNaN(n) || n < 1) return res.status(400).json({ error: 'invoice_next_number must be at least 1' });
+      updates.invoice_next_number = n;
+    }
+    if (body.invoice_header_note !== undefined) updates.invoice_header_note = (body.invoice_header_note ?? '').toString().trim().slice(0, 2000) || null;
+    if (body.invoice_footer_note !== undefined) updates.invoice_footer_note = (body.invoice_footer_note ?? '').toString().trim().slice(0, 2000) || null;
+    if (body.invoice_page_size !== undefined) {
+      const sz = (body.invoice_page_size ?? 'A4').toString().trim();
+      if (sz !== 'A4' && sz !== 'Letter') return res.status(400).json({ error: 'invoice_page_size must be A4 or Letter' });
+      updates.invoice_page_size = sz;
+    }
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
     const { data: tenant, error } = await supabase
       .from('tenants')
@@ -62,6 +92,49 @@ router.patch('/', async (req, res, next) => {
     }
     const { data: user } = await supabase.from('users').select('id, email, tenant_id').eq('id', req.userId).single();
     return res.json({ user: user ? { id: user.id, email: user.email } : null, tenant: tenant || null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/logo', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    if (body.remove === true) {
+      const { data: tenant } = await supabase.from('tenants').select('logo_url').eq('id', req.tenantId).single();
+      if (tenant?.logo_url) {
+        try {
+          const path = tenant.logo_url.split('/').slice(-2).join('/');
+          if (path) await supabase.storage.from(BUCKET).remove([path]);
+        } catch (_) {}
+      }
+      const { data: updated, error } = await supabase.from('tenants').update({ logo_url: null }).eq('id', req.tenantId).select(tenantFields).single();
+      if (error) return res.status(500).json({ error: 'Failed to remove logo' });
+      return res.json({ tenant: updated });
+    }
+    const dataUrl = body.logo;
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+      return res.status(400).json({ error: 'Body must include logo (data URL) or remove: true' });
+    }
+    const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+    if (!match) return res.status(400).json({ error: 'Invalid logo data URL' });
+    const mime = match[1].toLowerCase();
+    const base64 = match[2];
+    if (!ALLOWED_TYPES.includes(mime)) return res.status(400).json({ error: 'Logo must be PNG, JPEG, GIF, or WebP' });
+    const buf = Buffer.from(base64, 'base64');
+    if (buf.length > MAX_SIZE_BYTES) return res.status(400).json({ error: 'Logo must be 2MB or smaller' });
+    const ext = EXT[mime] || 'png';
+    const path = `${req.tenantId}/logo.${ext}`;
+    const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, buf, { contentType: mime, upsert: true });
+    if (uploadErr) {
+      console.error(uploadErr);
+      return res.status(500).json({ error: 'Failed to upload logo. Ensure bucket "' + BUCKET + '" exists and is public.' });
+    }
+    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    const logoUrl = urlData?.publicUrl || `${process.env.SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`;
+    const { data: updated, error: updateErr } = await supabase.from('tenants').update({ logo_url: logoUrl }).eq('id', req.tenantId).select(tenantFields).single();
+    if (updateErr) return res.status(500).json({ error: 'Failed to save logo URL' });
+    return res.json({ tenant: updated });
   } catch (err) {
     next(err);
   }

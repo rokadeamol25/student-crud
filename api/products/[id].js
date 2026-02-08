@@ -53,6 +53,13 @@ export default async function handler(req, res) {
       if (body.unit !== undefined) {
         updates.unit = (body.unit ?? '').toString().trim().slice(0, 50) || null;
       }
+      if (body.hsn_sac_code !== undefined || body.hsnSacCode !== undefined) {
+        updates.hsn_sac_code = (body.hsn_sac_code ?? body.hsnSacCode ?? '').toString().trim().slice(0, 20) || null;
+      }
+      if (body.tax_percent !== undefined) {
+        const p = Number(body.tax_percent);
+        updates.tax_percent = (Number.isNaN(p) || p < 0 || p > 100) ? null : p;
+      }
       if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
 
       const { data, error } = await supabase

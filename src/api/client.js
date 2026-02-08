@@ -1,8 +1,15 @@
 /**
  * API client: all tenant-scoped requests go to Express backend with JWT.
  * Base URL from env. Token from Supabase session (injected by caller).
+ * On 401, calls sessionExpiredHandler (logout + redirect); set via setSessionExpiredHandler.
  */
 export const BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+
+let sessionExpiredHandler = null;
+
+export function setSessionExpiredHandler(handler) {
+  sessionExpiredHandler = handler;
+}
 
 export async function api(token, path, options = {}) {
   const url = path.startsWith('http') ? path : `${BASE}${path.startsWith('/') ? path : `/${path}`}`;
@@ -21,9 +28,15 @@ export async function api(token, path, options = {}) {
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
+    if (!res.ok && res.status === 401 && typeof sessionExpiredHandler === 'function') {
+      sessionExpiredHandler();
+    }
     throw new Error(res.ok ? text : `Request failed: ${res.status} ${text}`);
   }
   if (!res.ok) {
+    if (res.status === 401 && typeof sessionExpiredHandler === 'function') {
+      sessionExpiredHandler();
+    }
     const msg = data?.error || data?.message || res.statusText || String(res.status);
     const err = new Error(msg);
     err.status = res.status;
@@ -56,7 +69,10 @@ export async function downloadCsv(token, path, filename = 'invoices.csv') {
     method: 'GET',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 401 && typeof sessionExpiredHandler === 'function') sessionExpiredHandler();
+    throw new Error(`Export failed: ${res.status}`);
+  }
   const text = await res.text();
   const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');

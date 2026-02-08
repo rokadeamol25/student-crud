@@ -1,7 +1,9 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
+import EmptyState from '../components/EmptyState';
+import ListSkeleton from '../components/ListSkeleton';
 
 const PAGE_SIZE = 20;
 
@@ -25,6 +27,7 @@ export default function Customers() {
   const [editPhone, setEditPhone] = useState('');
   const [editAddress, setEditAddress] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const addFormRef = useRef(null);
 
   const fetchList = useCallback(() => {
     if (!token) return;
@@ -119,7 +122,7 @@ export default function Customers() {
         />
       </div>
       {error && <div className="page__error">{error}</div>}
-      <section className="card page__section">
+      <section className="card page__section" ref={addFormRef}>
         <h2 className="card__heading">Add customer</h2>
         <form onSubmit={handleAdd} className="form form--grid">
           <label className="form__label">
@@ -148,9 +151,14 @@ export default function Customers() {
       <section className="card page__section">
         <h2 className="card__heading">All customers</h2>
         {loading ? (
-          <p className="page__muted">Loading…</p>
+          <ListSkeleton rows={6} columns={4} />
         ) : list.length === 0 ? (
-          <p className="page__muted">No customers yet.</p>
+          <EmptyState
+            title="No customers yet"
+            description="Add customers to bill on invoices."
+            actionLabel="Add customer"
+            onAction={() => addFormRef.current?.scrollIntoView?.({ behavior: 'smooth' })}
+          />
         ) : (
           <div className="table-wrap">
             <table className="table">
