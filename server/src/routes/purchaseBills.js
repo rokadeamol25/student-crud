@@ -191,7 +191,7 @@ router.get('/:id', async (req, res, next) => {
     const productIds = [...new Set(rawItems.map((i) => i.product_id).filter(Boolean))];
 
     const [productsRes, serialsRes, batchesRes] = await Promise.all([
-      productIds.length ? supabase.from('products').select('id, name, tracking_type').in('id', productIds) : { data: [] },
+      productIds.length ? supabase.from('products').select('id, name, tracking_type, company, ram_storage, color').in('id', productIds) : { data: [] },
       itemIds.length ? supabase.from('product_serials').select('id, serial_number, purchase_bill_item_id').in('purchase_bill_item_id', itemIds).order('created_at') : { data: [] },
       itemIds.length ? supabase.from('product_batches').select('id, batch_number, expiry_date, quantity, purchase_bill_item_id').in('purchase_bill_item_id', itemIds).order('created_at') : { data: [] },
     ]);

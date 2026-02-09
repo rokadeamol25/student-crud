@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="mr">
+<head>
+<meta charset="UTF-8">
+<title>बिलिंग अॅप — वापरकर्ता मार्गदर्शक (मराठी)</title>
+<style>
+  @page { size: A4; margin: 18mm 14mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Noto Sans Devanagari', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 13px; line-height: 1.75; color: #1a1a1a;
+    max-width: 760px; margin: 0 auto; padding: 24px 16px;
+  }
+
+  /* Cover */
+  .cover { text-align: center; padding: 100px 20px 80px; page-break-after: always; }
+  .cover h1 { font-size: 38px; color: #0d6efd; margin-bottom: 8px; border: none; }
+  .cover .subtitle { font-size: 18px; color: #333; font-weight: 600; }
+  .cover .desc { font-size: 15px; color: #666; margin-top: 6px; }
+  .cover .date { margin-top: 40px; font-size: 13px; color: #999; }
+  .cover .hint { margin-top: 60px; font-size: 12px; color: #aaa; }
+
+  /* Headings */
+  h1 { font-size: 24px; color: #0d6efd; border-bottom: 2px solid #0d6efd; padding-bottom: 4px; margin: 36px 0 14px; page-break-after: avoid; }
+  h2 { font-size: 18px; color: #198754; margin: 24px 0 10px; page-break-after: avoid; }
+  h3 { font-size: 15px; color: #444; margin: 18px 0 8px; page-break-after: avoid; }
+
+  /* Text */
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0 8px 24px; }
+  li { margin: 3px 0; }
+  strong { color: #111; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: 'SF Mono', 'Consolas', monospace; }
+
+  /* Tables */
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 12.5px; page-break-inside: avoid; }
+  th, td { border: 1px solid #d0d0d0; padding: 6px 10px; text-align: left; }
+  th { background: #f5f5f5; font-weight: 600; color: #333; }
+  tr:nth-child(even) { background: #fafafa; }
+
+  /* Callouts */
+  .tip {
+    background: #e8f5e9; border-left: 4px solid #198754;
+    padding: 10px 14px; margin: 12px 0; border-radius: 4px; font-size: 12.5px;
+    page-break-inside: avoid;
+  }
+  .warn {
+    background: #fff8e1; border-left: 4px solid #ff9800;
+    padding: 10px 14px; margin: 12px 0; border-radius: 4px; font-size: 12.5px;
+    page-break-inside: avoid;
+  }
+  .info {
+    background: #e3f2fd; border-left: 4px solid #0d6efd;
+    padding: 10px 14px; margin: 12px 0; border-radius: 4px; font-size: 12.5px;
+    page-break-inside: avoid;
+  }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 11px; font-weight: 600; color: #fff; vertical-align: middle; }
+  .badge-qty { background: #6c757d; }
+  .badge-serial { background: #0d6efd; }
+  .badge-batch { background: #198754; }
+
+  /* Steps */
+  .steps { counter-reset: step-counter; margin: 10px 0; }
+  .step { counter-increment: step-counter; position: relative; padding-left: 34px; margin: 6px 0; min-height: 26px; }
+  .step::before {
+    content: counter(step-counter); position: absolute; left: 0; top: 1px;
+    width: 24px; height: 24px; background: #0d6efd; color: #fff;
+    border-radius: 50%; text-align: center; line-height: 24px;
+    font-size: 12px; font-weight: 700;
+  }
+
+  /* Horizontal rule */
+  hr { border: none; border-top: 1px solid #ddd; margin: 28px 0; }
+
+  /* TOC */
+  .toc { list-style: none; padding: 0; margin: 12px 0; }
+  .toc li { padding: 4px 0; font-size: 14px; }
+  .toc a { text-decoration: none; color: #0d6efd; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* Print */
+  @media print {
+    body { padding: 0; max-width: none; }
+    .no-print { display: none !important; }
+    a { color: #0d6efd !important; text-decoration: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== COVER ===== -->
+<div class="cover">
+  <h1>बिलिंग अॅप</h1>
+  <p class="subtitle">वापरकर्ता मार्गदर्शक</p>
+  <p class="desc">प्रत्येक कार्याचे पायरी-दर-पायरी वर्णन आणि उदाहरणे</p>
+  <p class="date">फेब्रुवारी 2026</p>
+  <p class="hint">PDF तयार करण्यासाठी: ब्राउझरमध्ये हा HTML उघडा → <strong>File → Print → Save as PDF</strong></p>
+</div>
+
+<!-- ===== TOC ===== -->
+<h1>अनुक्रमणिका</h1>
+<ol class="toc">
+  <li><a href="#s1">1. परिचय</a></li>
+  <li><a href="#s2">2. सुरुवात कशी करावी (Login / Sign up)</a></li>
+  <li><a href="#s3">3. डॅशबोर्ड</a></li>
+  <li><a href="#s4">4. उत्पादने (Products)</a></li>
+  <li><a href="#s5">5. ग्राहक (Customers)</a></li>
+  <li><a href="#s6">6. सप्लायर (Suppliers)</a></li>
+  <li><a href="#s7">7. खरेदी बिले (Purchase Bills)</a></li>
+  <li><a href="#s8">8. इन्व्हॉइस (Invoices)</a></li>
+  <li><a href="#s9">9. अहवाल (Reports)</a></li>
+  <li><a href="#s10">10. सेटिंग्स (Settings)</a></li>
+  <li><a href="#s11">11. झटपट संदर्भ</a></li>
+  <li><a href="#s12">12. सिरीयल आणि बॅच — थोडक्यात</a></li>
+</ol>
+
+<hr>
+
+<!-- ===== 1. INTRO ===== -->
+<h1 id="s1">1. परिचय</h1>
+
+<p>या अॅपमध्ये तुम्ही <strong>उत्पादने</strong>, <strong>ग्राहक</strong>, <strong>सप्लायर</strong>, <strong>खरेदी बिले</strong> आणि <strong>इन्व्हॉइस</strong> एकाच ठिकाणी व्यवस्थित करू शकता. यात हे समाविष्ट आहे:</p>
+
+<ul>
+  <li><strong>स्टॉक ट्रॅकिंग:</strong> <span class="badge badge-qty">quantity</span> संख्या, <span class="badge badge-serial">serial</span> सिरीयल/IMEI (उदा. मोबाइल), <span class="badge badge-batch">batch</span> बॅच (उदा. एक्सपायरी).</li>
+  <li><strong>सप्लायरकडून खरेदी बिले</strong> — सिरीयल/बॅच एंट्री आणि पेमेंटसह.</li>
+  <li><strong>ग्राहकांना इन्व्हॉइस</strong> — सिरीयल उत्पादन विकताना सिरीयल निवड.</li>
+  <li><strong>अहवाल:</strong> विक्री, बाकी, कर, P&amp;L इ.</li>
+</ul>
+
+<div class="info">सर्व डेटा <strong>टेनंट-स्कोप्ड</strong> आहे: प्रत्येक व्यवसायाला फक्त स्वतःची उत्पादने, ग्राहक आणि व्यवहार दिसतात.</div>
+
+<hr>
+
+<!-- ===== 2. GETTING STARTED ===== -->
+<h1 id="s2">2. सुरुवात कशी करावी</h1>
+
+<h2>2.1 लॉग इन</h2>
+<div class="steps">
+  <div class="step">अॅप उघडा आणि <strong>Login</strong> वर जा.</div>
+  <div class="step">तुमचा <strong>email</strong> आणि <strong>password</strong> टाइप करा.</div>
+  <div class="step"><strong>Log in</strong> क्लिक करा. तुम्हाला <strong>Dashboard</strong> वर नेले जाईल.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> Email: <code>shop@example.com</code>, Password: (तुमचा पासवर्ड).</div>
+
+<h2>2.2 साइन अप (नवा व्यवसाय)</h2>
+<div class="steps">
+  <div class="step"><strong>Sign up</strong> क्लिक करा.</div>
+  <div class="step"><strong>email</strong> आणि <strong>password</strong> टाइप करा (आवश्यक असल्यास confirm password).</div>
+  <div class="step">सबमिट करा. ईमेलवर verification लिंक येईल.</div>
+  <div class="step">verify झाल्यावर <strong>Sign up complete</strong> उघडा: <strong>business name</strong> टाइप करा आणि onboarding पूर्ण करा.</div>
+  <div class="step">त्यानंतर लॉग इन करून अॅप वापरू शकता.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> Business name: "माझा मोबाइल स्टोअर".</div>
+
+<h2>2.3 नेव्हिगेशन (मेनू)</h2>
+<p>लॉग इन नंतर वरच्या बारमध्ये दिसते:</p>
+<table>
+  <tr><th>मेनू</th><th>उद्देश</th></tr>
+  <tr><td><strong>Products</strong></td><td>उत्पादने जोडा आणि व्यवस्थापन करा</td></tr>
+  <tr><td><strong>Customers</strong></td><td>ग्राहक यादी</td></tr>
+  <tr><td><strong>Suppliers</strong></td><td>सप्लायर यादी</td></tr>
+  <tr><td><strong>Purchase bills</strong></td><td>खरेदी बिले पहा आणि नवी तयार करा</td></tr>
+  <tr><td><strong>Invoices</strong></td><td>इन्व्हॉइस यादी</td></tr>
+  <tr><td><strong>New invoice</strong></td><td>नवी इन्व्हॉइस तयार करा</td></tr>
+  <tr><td><strong>Reports</strong></td><td>विक्री, बाकी, कर इ. अहवाल</td></tr>
+  <tr><td><strong>Settings</strong></td><td>व्यवसाय प्रोफाइल, कर, ट्रॅकिंग प्रकार, कॉलम</td></tr>
+</table>
+
+<hr>
+
+<!-- ===== 3. DASHBOARD ===== -->
+<h1 id="s3">3. डॅशबोर्ड</h1>
+<p><strong>मार्ग:</strong> लॉग इन नंतर मुख्य पृष्ठ (<code>/</code>).</p>
+
+<h3>काय दिसते</h3>
+<table>
+  <tr><th>कार्ड</th><th>काय दाखवते</th><th>उदाहरण</th></tr>
+  <tr><td><strong>Revenue (paid)</strong></td><td>या महिन्यात paid इन्व्हॉइसची एकूण रक्कम</td><td>₹50,000</td></tr>
+  <tr><td><strong>Draft</strong></td><td>Draft इन्व्हॉइसची एकूण रक्कम आणि संख्या</td><td>₹5,000 (२ इन्व्हॉइस)</td></tr>
+  <tr><td><strong>Sent (pending)</strong></td><td>Sent इन्व्हॉइस (अद्याप paid नाही)</td><td>₹10,000 (१ इन्व्हॉइस)</td></tr>
+  <tr><td><strong>Outstanding</strong></td><td>ग्राहकांकडून बाकी</td><td>₹10,000</td></tr>
+</table>
+<p><strong>शॉर्टकट कार्ड्स:</strong> Products, Customers, Invoices, New invoice.</p>
+<div class="tip"><strong>उदाहरण:</strong> Outstanding ₹10,000 → "View report" क्लिक केल्यावर Reports वर जाते.</div>
+
+<hr>
+
+<!-- ===== 4. PRODUCTS ===== -->
+<h1 id="s4">4. उत्पादने (Products)</h1>
+<p><strong>मार्ग:</strong> मेनूमधील <strong>Products</strong>.</p>
+
+<h2>4.1 डिफॉल्ट ट्रॅकिंग प्रकार</h2>
+<p>वर दिसते: <strong>Default product type:</strong> <span class="badge badge-serial">Serial/IMEI</span> (किंवा <span class="badge badge-qty">Quantity</span> / <span class="badge badge-batch">Batch</span>).</p>
+<p>हे <strong>Settings → Inventory tracking</strong> मधून सेट होते. नव्या उत्पादनांना हा प्रकार मिळतो. टेबल <strong>All</strong>, <strong>Quantity</strong>, <strong>Serial</strong>, किंवा <strong>Batch</strong> ने फिल्टर करू शकता.</p>
+
+<h2>4.2 उत्पादन कसे जोडावे</h2>
+<div class="steps">
+  <div class="step"><strong>Add product</strong> फॉर्म पर्यंत स्क्रोल करा.</div>
+  <div class="step"><strong>Name</strong> टाइप करा (उदा. "Samsung A17 8/128 black").</div>
+  <div class="step"><strong>Price</strong> टाइप करा (उदा. 20999).</div>
+  <div class="step">दिसल्यास <strong>Unit</strong> (pc), <strong>Company/Brand</strong>, <strong>RAM/Storage</strong>, <strong>Color</strong> इ. भरा.</div>
+  <div class="step"><strong>Add product</strong> क्लिक करा.</div>
+</div>
+<div class="tip"><strong>उदाहरण (Serial प्रकार):</strong> Name: "Oppo A5pro 8/128 feather blue", Price: 18999, Company: OPPO, RAM/Storage: 8GB/128GB, Color: feather blue.</div>
+<div class="warn"><strong>महत्त्वाचे:</strong> Serial प्रकारात IMEI उत्पादनावर टाइप करू नका — IMEI खरेदी बिल <strong>Record</strong> करताना सिरीयल सेक्शनमध्ये एंट्री होते.</div>
+
+<h2>4.3 उत्पादन यादी पहाणे</h2>
+<ul>
+  <li>टेबलमध्ये: <strong>Name</strong>, <strong>Price</strong>, <strong>Tracking</strong> (quantity/serial/batch), <strong>Stock</strong>, <strong>Unit</strong> आणि Settings मधील अतिरिक्त कॉलम.</li>
+  <li><strong>Stock</strong> "X · unit" असे दिसते (उदा. "1 · pc"). serial/batch साठी stock > 0 असेल तर <strong>View</strong> बटण दिसते.</li>
+</ul>
+
+<h2>4.4 सिरीयल किंवा बॅच पहाणे</h2>
+<div class="steps">
+  <div class="step">टेबलमध्ये उत्पादन शोधा.</div>
+  <div class="step">stock > 0 असेल तर stock शेजारचे <strong>View</strong> क्लिक करा.</div>
+  <div class="step">मोडलमध्ये त्या उत्पादनाचे <strong>Serial numbers</strong> (serial) किंवा <strong>Batches</strong> (batch) यादीत दिसतात.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> उत्पादन "Oppo A5pro" stock 1 — View — एक सिरीयल/IMEI दिसते (उदा. 863651070765215).</div>
+
+<h2>4.5 उत्पादन संपादन (Edit)</h2>
+<div class="steps">
+  <div class="step">टेबल रोमध्ये <strong>Edit</strong> क्लिक करा.</div>
+  <div class="step">नाव, किंमत किंवा इतर परवानगी असलेली फील्ड्स बदला. <strong>Tracking type</strong> read-only असतो.</div>
+  <div class="step">सेव्ह करा.</div>
+</div>
+
+<h2>4.6 उत्पादन हटवणे (Delete)</h2>
+<p>रोवर <strong>Delete</strong> क्लिक करा, confirm करा. फक्त जेव्हा उत्पादन इन्व्हॉइस किंवा खरेदी बिलात वापरलेले नसेल तेव्हाच वापरा.</p>
+
+<hr>
+
+<!-- ===== 5. CUSTOMERS ===== -->
+<h1 id="s5">5. ग्राहक (Customers)</h1>
+<p><strong>मार्ग:</strong> मेनूमधील <strong>Customers</strong>.</p>
+
+<h2>5.1 ग्राहक जोडणे</h2>
+<div class="steps">
+  <div class="step"><strong>Name</strong> (आवश्यक), <strong>Email</strong>, <strong>Phone</strong>, <strong>Address</strong> भरा.</div>
+  <div class="step"><strong>Add customer</strong> क्लिक करा.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> Name: "विकास", Phone: 9876543210, Address: "123 मेन स्ट्रीट".</div>
+
+<h2>5.2 यादी आणि संपादन</h2>
+<p>टेबलमध्ये सर्व ग्राहक दिसतात. <strong>Edit</strong> ने बदल करा. <strong>Delete</strong> ने ग्राहक काढता येतो (फक्त इन्व्हॉइसवर वापरलेला नसेल तेव्हा).</p>
+
+<hr>
+
+<!-- ===== 6. SUPPLIERS ===== -->
+<h1 id="s6">6. सप्लायर (Suppliers)</h1>
+<p><strong>मार्ग:</strong> मेनूमधील <strong>Suppliers</strong>.</p>
+
+<h2>6.1 सप्लायर जोडणे</h2>
+<div class="steps">
+  <div class="step"><strong>Name</strong> (उदा. "युगा ट्रेडर्स"), <strong>Email</strong>, <strong>Phone</strong>, <strong>Address</strong> टाइप करा (नाव वगळता सर्व optional).</div>
+  <div class="step"><strong>Add supplier</strong> क्लिक करा.</div>
+</div>
+
+<h2>6.2 सप्लायर खाते (Supplier Ledger)</h2>
+<p>यादीतून सप्लायर उघडा आणि <strong>Supplier ledger</strong> वर जा. त्या सप्लायरची सर्व खरेदी बिले, एकूण खरेदी, दिलेले पेमेंट, बाकी दिसते.</p>
+
+<hr>
+
+<!-- ===== 7. PURCHASE BILLS ===== -->
+<h1 id="s7">7. खरेदी बिले (Purchase Bills)</h1>
+<p>खरेदी बिले म्हणजे <strong>सप्लायरकडून काय विकत घेतले</strong> ते रेकॉर्ड. ती <strong>draft</strong> (संपादन करता येते) किंवा <strong>recorded</strong> (स्टॉक आणि last purchase price अपडेट झालेले) असू शकतात.</p>
+
+<h2>7.1 खरेदी बिल कसे तयार करावे</h2>
+<div class="steps">
+  <div class="step"><strong>Purchase bills</strong> → <strong>New purchase bill</strong> वर जा.</div>
+  <div class="step"><strong>Supplier</strong> निवडा (उदा. Yuga Traders).</div>
+  <div class="step"><strong>Bill number:</strong> ऑटो साठी <strong>रिक्त</strong> ठेवा (उदा. PB-0001) किंवा स्वतःचा नंबर टाइप करा.</div>
+  <div class="step"><strong>Bill date:</strong> खरेदीची तारीख निवडा.</div>
+  <div class="step"><strong>Items:</strong> रो जोडा — <strong>Product</strong>, <strong>Qty</strong>, <strong>Purchase price</strong> निवडा.</div>
+  <div class="step"><strong>Create purchase bill</strong> क्लिक करा.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> Supplier: Yuga Traders, Bill number: (ऑटो साठी रिक्त), Date: 2026-02-09. Items: Oppo A5pro × 1 @ ₹18,999, Samsung A07 × 1 @ ₹8,999. एकूण ₹27,998.</div>
+
+<h2>7.2 Draft बिल पहाणे आणि संपादन</h2>
+<div class="steps">
+  <div class="step"><strong>Purchase bills</strong> मधून बिल उघडा (उदा. <strong>View</strong> क्लिक करा).</div>
+  <div class="step">status <strong>draft</strong> असेल तर बिल नंबर, तारीख किंवा आयटम बदलू शकता.</div>
+  <div class="step">बदल सेव्ह करा.</div>
+</div>
+
+<h2>7.3 खरेदी बिल रेकॉर्ड करणे (स्टॉक अपडेट)</h2>
+<div class="warn"><strong>महत्त्वाचे:</strong> Record केल्यावर स्टॉक वाढते आणि <strong>last purchase price</strong> अपडेट होते. <strong>Serial</strong> उत्पादनांसाठी सिरीयल नंबर एंटर करावे लागतात; <strong>Batch</strong> साठी बॅच नंबर आणि एक्सपायरी.</div>
+<div class="steps">
+  <div class="step"><strong>draft</strong> खरेदी बिल उघडा.</div>
+  <div class="step"><strong>Record bill (update stock)</strong> क्लिक करा.</div>
+  <div class="step">मोडलमध्ये <strong>serial</strong> लाइन्स असल्यास प्रति युनिट एक सिरीयल/IMEI टाइप करा. <strong>Batch</strong> साठी बॅच नंबर आणि एक्सपायरी भरा.</div>
+  <div class="step"><strong>Record bill</strong> confirm करा.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> लाइन "Oppo A5pro" qty 1 — सिरीयल सेक्शनमध्ये IMEI "863651070765215" टाइप करा → Record. उत्पादनाचा Stock 1 होतो आणि Products → View मध्ये तो IMEI दिसतो.</div>
+
+<h2>7.4 पेमेंट रेकॉर्ड करणे</h2>
+<div class="steps">
+  <div class="step"><strong>recorded</strong> बिल उघडा.</div>
+  <div class="step"><strong>Record payment</strong> क्लिक करा.</div>
+  <div class="step"><strong>Amount</strong>, <strong>Method</strong> (cash / UPI / bank transfer), <strong>Reference</strong>, <strong>Date</strong> टाइप करा.</div>
+  <div class="step">सबमिट करा. बिलावर <strong>Amount paid</strong> आणि <strong>Balance</strong> अपडेट होते.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> Amount: ₹27,998, Method: cash, Date: 2026-02-09.</div>
+
+<h2>7.5 प्रिंट / PDF डाउनलोड (खरेदी बिल)</h2>
+<div class="steps">
+  <div class="step">बिल उघडा → <strong>Print / Download PDF</strong>.</div>
+  <div class="step">प्रिंट व्ह्यूमध्ये: <strong>Bill number</strong>, <strong>Date</strong>, <strong>Supplier</strong>, टेबल — <strong>Product</strong>, <strong>Type</strong>, <strong>Serial/IMEI</strong> (असल्यास), <strong>Batch</strong> (असल्यास), <strong>Qty</strong>, <strong>Unit price</strong>, <strong>Amount</strong>, <strong>Total</strong>, payments.</div>
+  <div class="step"><strong>Print</strong> किंवा <strong>Download PDF</strong> वापरा.</div>
+</div>
+
+<hr>
+
+<!-- ===== 8. INVOICES ===== -->
+<h1 id="s8">8. इन्व्हॉइस (Invoices)</h1>
+<p>इन्व्हॉइस म्हणजे <strong>ग्राहकांना</strong> पाठवलेले बिल. ती <strong>draft</strong>, <strong>sent</strong>, किंवा <strong>paid</strong> असू शकतात.</p>
+
+<h2>8.1 नवी इन्व्हॉइस कशी तयार करावी</h2>
+<div class="steps">
+  <div class="step"><strong>New invoice</strong> वर जा (किंवा <strong>Invoices → New invoice</strong>).</div>
+  <div class="step"><strong>Customer</strong>, <strong>Date</strong>, <strong>GST type</strong> (Intra-state / Inter-state) निवडा.</div>
+  <div class="step"><strong>Items:</strong> लाइन्स जोडा — <strong>Product</strong> निवडा, <strong>Description</strong>, <strong>Qty</strong>, <strong>Unit price</strong> भरा.</div>
+  <div class="step"><strong>Serial</strong> उत्पादनांसाठी <strong>Serial (IMEI)</strong> ड्रॉपडाउनमधून कोणता सिरीयल विकायचा ते निवडा.</div>
+  <div class="step"><strong>Save as Draft</strong> (नंतर साठी, स्टॉक बदलत नाही) किंवा <strong>Save &amp; Send</strong> (स्टॉक कमी होते) क्लिक करा.</div>
+</div>
+
+<div class="tip">
+  <strong>उदाहरण:</strong> Customer: विकास, Date: 2026-02-09, GST: Intra-state.<br>
+  Line 1: Product "Oppo A5pro", Qty 1, Price ₹18,999, Serial: "863651070765215" निवडा.<br>
+  Line 2: Product "Samsung A07", Qty 1, Price ₹8,999.<br>
+  एकूण + कर. <strong>Save &amp; Send</strong> क्लिक करा.
+</div>
+
+<div class="warn"><strong>Save &amp; Send केल्यावर:</strong> स्टॉक कमी होतो. Serial उत्पादनासाठी निवडलेला IMEI "sold" म्हणून मार्क होतो.</div>
+
+<h2>8.2 इन्व्हॉइस संपादन (draft किंवा sent)</h2>
+<div class="steps">
+  <div class="step"><strong>Invoices</strong> मधून इन्व्हॉइस उघडा → <strong>Edit</strong>.</div>
+  <div class="step">ग्राहक, तारीख, लाइन्स किंवा (serial साठी) कोणता सिरीयल विकायचा ते बदला.</div>
+  <div class="step">आवश्यकतेनुसार <strong>Save as Draft</strong> किंवा <strong>Save &amp; Send</strong> करा.</div>
+</div>
+
+<h2>8.3 Draft इन्व्हॉइस पाठवणे</h2>
+<p>Draft उघडा → <strong>Edit</strong> → <strong>Save &amp; Send</strong>. पाठवल्यावर स्टॉक कमी होतो आणि (serial साठी) निवडलेले सिरीयल्स sold मार्क होतात.</p>
+
+<h2>8.4 पेमेंट रेकॉर्ड करणे (ग्राहकाने पैसे दिले)</h2>
+<div class="steps">
+  <div class="step">इन्व्हॉइस उघडा → <strong>Print</strong> व्ह्यू.</div>
+  <div class="step"><strong>Record payment</strong> क्लिक करा.</div>
+  <div class="step"><strong>Amount</strong>, <strong>Method</strong>, <strong>Reference</strong>, <strong>Date</strong> टाइप करा.</div>
+  <div class="step">सबमिट करा. एकूण paid ≥ total → status <strong>Paid</strong>.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> इन्व्हॉइस एकूण ₹26,000. पेमेंट ₹26,000 रेकॉर्ड, method UPI. बाकी 0, status Paid.</div>
+
+<h2>8.5 प्रिंट / PDF (इन्व्हॉइस)</h2>
+<div class="steps">
+  <div class="step">इन्व्हॉइस उघडा → <strong>Print</strong>.</div>
+  <div class="step">प्रिंट व्ह्यूमध्ये: <strong>business name</strong>, <strong>logo</strong>, <strong>Invoice number</strong>, <strong>Date</strong>, <strong>Bill to</strong> (ग्राहक), टेबल — <strong>#</strong>, <strong>Description</strong>, <strong>Type</strong>, <strong>Serial/IMEI</strong> (सिरीयल असल्यास), <strong>Qty</strong>, <strong>Unit price</strong>, <strong>Amount</strong>, <strong>Totals</strong>, <strong>Payments</strong>.</div>
+  <div class="step"><strong>Print</strong> किंवा <strong>Download PDF</strong> वापरा.</div>
+</div>
+<div class="tip"><strong>उदाहरण (serial):</strong> लाइन "Oppo A5pro" सिरीयल 863651070765215 — प्रिंट केलेल्या इन्व्हॉइसमध्ये Serial/IMEI कॉलममध्ये तो सिरीयल दिसतो.</div>
+
+<hr>
+
+<!-- ===== 9. REPORTS ===== -->
+<h1 id="s9">9. अहवाल (Reports)</h1>
+<p><strong>मार्ग:</strong> मेनूमधील <strong>Reports</strong>.</p>
+
+<h2>9.1 उपलब्ध अहवाल</h2>
+<table>
+  <tr><th>अहवाल</th><th>काय दाखवते</th></tr>
+  <tr><td><strong>Sales summary</strong></td><td>कालावधीनुसार revenue, इन्व्हॉइस संख्या</td></tr>
+  <tr><td><strong>Invoice summary</strong></td><td>Draft, Sent, Paid एकूण आणि संख्या</td></tr>
+  <tr><td><strong>Outstanding</strong></td><td>बाकी असलेल्या इन्व्हॉइस; एकूण बाकी</td></tr>
+  <tr><td><strong>Top products</strong></td><td>कालावधीनुसार सर्वात जास्त विकलेली उत्पादने</td></tr>
+  <tr><td><strong>Top customers</strong></td><td>कालावधीनुसार सर्वात जास्त खरेदी करणारे ग्राहक</td></tr>
+  <tr><td><strong>Tax summary</strong></td><td>CGST / SGST / IGST</td></tr>
+  <tr><td><strong>Revenue trend</strong></td><td>गेल्या 6 महिन्यांची paid revenue</td></tr>
+  <tr><td><strong>Product profit</strong></td><td>उत्पादनानुसार revenue vs cost</td></tr>
+</table>
+
+<h2>9.2 अहवाल वापर</h2>
+<div class="steps">
+  <div class="step"><strong>Reports</strong> उघडा.</div>
+  <div class="step"><strong>Period</strong> निवडा: This month, Last month, Last 7 days, All time. किंवा <strong>From</strong> आणि <strong>To</strong> तारखा सेट करा.</div>
+  <div class="step">आवश्यक सेक्शन पर्यंत स्क्रोल करा.</div>
+</div>
+<div class="tip"><strong>उदाहरण:</strong> "This month" — Outstanding मध्ये ₹10,000, 1 इन्व्हॉइस — कोणता इन्व्हॉइस ते पहाण्यासाठी क्लिक करा.</div>
+
+<h2>9.3 P&amp;L (नफा आणि तोटा)</h2>
+<p><strong>मार्ग:</strong> <strong>Reports → P&amp;L</strong>.</p>
+<ul>
+  <li><strong>From</strong> आणि <strong>To</strong> निवडा.</li>
+  <li><strong>Revenue</strong>, <strong>Cost of goods sold</strong>, <strong>Gross profit</strong> पहा.</li>
+</ul>
+
+<hr>
+
+<!-- ===== 10. SETTINGS ===== -->
+<h1 id="s10">10. सेटिंग्स (Settings)</h1>
+<p><strong>मार्ग:</strong> मेनूमधील <strong>Settings</strong>.</p>
+
+<h2>10.1 व्यवसाय प्रोफाइल</h2>
+<table>
+  <tr><th>सेटिंग</th><th>वर्णन</th><th>उदाहरण</th></tr>
+  <tr><td><strong>Business name</strong></td><td>तुमच्या व्यवसायाचे नाव</td><td>माझा मोबाइल स्टोअर</td></tr>
+  <tr><td><strong>Currency / Symbol</strong></td><td>चलन</td><td>INR / ₹</td></tr>
+  <tr><td><strong>GSTIN</strong></td><td>GST नंबर (optional)</td><td>27AXXXX1234A1Z5</td></tr>
+  <tr><td><strong>Logo</strong></td><td>अपलोड/काढा — प्रिंटवर दिसते</td><td>—</td></tr>
+</table>
+
+<h2>10.2 कर आणि इन्व्हॉइस</h2>
+<table>
+  <tr><th>सेटिंग</th><th>वर्णन</th><th>उदाहरण</th></tr>
+  <tr><td><strong>Default tax %</strong></td><td>इन्व्हॉइसवर लागू कर</td><td>18</td></tr>
+  <tr><td><strong>Invoice prefix + Next number</strong></td><td>इन्व्हॉइस नंबरिंग</td><td>INV- + 1 → INV-0001</td></tr>
+  <tr><td><strong>Purchase bill prefix + Next</strong></td><td>खरेदी बिल नंबरिंग</td><td>PB- + 1 → PB-0001</td></tr>
+  <tr><td><strong>Invoice header/footer note</strong></td><td>प्रिंट केलेल्या इन्व्हॉइसवर मजकूर</td><td>"Thank you"</td></tr>
+  <tr><td><strong>Invoice page size</strong></td><td>A4 किंवा Letter</td><td>A4</td></tr>
+</table>
+
+<h2>10.3 इन्व्हेंटरी ट्रॅकिंग</h2>
+<table>
+  <tr><th>सेटिंग</th><th>वर्णन</th><th>उदाहरण</th></tr>
+  <tr><td><strong>Default tracking type</strong></td><td>नव्या उत्पादनांचा प्रकार</td><td><span class="badge badge-serial">Serial/IMEI</span></td></tr>
+  <tr><td><strong>Product form columns</strong></td><td>उत्पादन फॉर्मवर कोणते फील्ड दिसतात</td><td>Unit, Company, RAM/Storage, Color</td></tr>
+  <tr><td><strong>Invoice line columns</strong></td><td>इन्व्हॉइस लाइनवर अतिरिक्त कॉलम</td><td>Company, RAM/Storage, Color</td></tr>
+  <tr><td><strong>Invoice product search</strong></td><td>Dropdown किंवा Typeahead</td><td>Dropdown</td></tr>
+</table>
+
+<div class="info">सर्व बदल <strong>Save settings</strong> ने सेव्ह करा.</div>
+
+<hr>
+
+<!-- ===== 11. QUICK REFERENCE ===== -->
+<h1 id="s11">11. झटपट संदर्भ</h1>
+<table>
+  <tr><th>कार्य</th><th>कुठे</th><th>क्रिया</th></tr>
+  <tr><td>उत्पादन जोडणे</td><td>Products</td><td>फॉर्म → Name, Price → Add product</td></tr>
+  <tr><td>ग्राहक जोडणे</td><td>Customers</td><td>फॉर्म → Name इ. → Add customer</td></tr>
+  <tr><td>सप्लायर जोडणे</td><td>Suppliers</td><td>फॉर्म → Name इ. → Add supplier</td></tr>
+  <tr><td>खरेदी बिल तयार करणे</td><td>Purchase bills → New</td><td>Supplier, तारीख, आयटम → Create → Record (serial: IMEI एंट्री)</td></tr>
+  <tr><td>पेमेंट (सप्लायर)</td><td>खरेदी बिल उघडा</td><td>Record payment → Amount, method, तारीख</td></tr>
+  <tr><td>इन्व्हॉइस तयार करणे</td><td>New invoice</td><td>Customer, तारीख, आयटम (serial: IMEI निवडा) → Save &amp; Send</td></tr>
+  <tr><td>पेमेंट (ग्राहक)</td><td>इन्व्हॉइस → Print</td><td>Record payment → Amount, method, तारीख</td></tr>
+  <tr><td>इन्व्हॉइस प्रिंट</td><td>इन्व्हॉइस</td><td>Print / Download PDF</td></tr>
+  <tr><td>खरेदी बिल प्रिंट</td><td>खरेदी बिल</td><td>Print / Download PDF</td></tr>
+  <tr><td>ट्रॅकिंग बदलणे</td><td>Settings</td><td>Inventory tracking → Quantity / Serial / Batch → Save</td></tr>
+</table>
+
+<hr>
+
+<!-- ===== 12. SERIAL & BATCH ===== -->
+<h1 id="s12">12. सिरीयल आणि बॅच — थोडक्यात</h1>
+<table>
+  <tr><th>प्रकार</th><th>स्टॉक</th><th>खरेदीवर (Purchase)</th><th>इन्व्हॉइसवर (Sale)</th><th>प्रिंट / PDF</th></tr>
+  <tr>
+    <td><span class="badge badge-qty">Quantity</span></td>
+    <td>एक संख्या</td>
+    <td>Qty स्टॉकमध्ये जोडले जाते</td>
+    <td>Qty कमी होते</td>
+    <td>Qty, Price, Amount</td>
+  </tr>
+  <tr>
+    <td><span class="badge badge-serial">Serial/IMEI</span></td>
+    <td>= उपलब्ध IMEI ची संख्या</td>
+    <td>Record वेळी प्रति युनिट IMEI टाइप करा</td>
+    <td>Serial (IMEI) ड्रॉपडाउनमधून निवडा; Send वर sold मार्क</td>
+    <td>Serial/IMEI कॉलममध्ये IMEI दिसतो</td>
+  </tr>
+  <tr>
+    <td><span class="badge badge-batch">Batch</span></td>
+    <td>= बॅचमधील एकूण qty</td>
+    <td>Record वेळी बॅच नंबर + expiry</td>
+    <td>FEFO ने बॅचमधून कमी</td>
+    <td>Batch कॉलममध्ये बॅच तपशील</td>
+  </tr>
+</table>
+
+<hr>
+
+<div style="text-align:center;padding:30px 0;color:#888;font-size:13px;">
+  <p><strong>— मार्गदर्शक संपूर्ण —</strong></p>
+  <p style="margin-top:8px;">PDF तयार करण्यासाठी: <strong>File → Print → Save as PDF</strong></p>
+</div>
+
+</body>
+</html>

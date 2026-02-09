@@ -327,13 +327,14 @@ router.get('/pnl', async (req, res, next) => {
     if (new Date(from) > new Date(to)) return res.status(400).json({ error: 'from must be before or equal to to' });
     const { data: invoices, error: invErr } = await supabase
       .from('invoices')
-      .select('id, total')
+      .select('id, subtotal, total')
       .eq('tenant_id', req.tenantId)
       .in('status', ['sent', 'paid'])
       .gte('invoice_date', from)
       .lte('invoice_date', to);
     if (invErr) throw invErr;
-    const totalSales = (invoices || []).reduce((s, i) => s + Number(i.total || 0), 0);
+    // Revenue for profit = subtotal (excl. tax); tax is not your income
+    const totalSales = (invoices || []).reduce((s, i) => s + Number(i.subtotal ?? i.total ?? 0), 0);
     const invoiceIds = (invoices || []).map((i) => i.id);
     let totalCost = 0;
     if (invoiceIds.length > 0) {
@@ -354,7 +355,8 @@ router.get('/pnl', async (req, res, next) => {
     const totalPurchasesR = Math.round(totalPurchases * 100) / 100;
     const grossProfit = Math.round((totalSalesR - totalCostR) * 100) / 100;
     const profitPercent = totalSalesR > 0 ? Math.round(grossProfit / totalSalesR * 10000) / 100 : 0;
-    res.json({ from, to, totalSales: totalSalesR, totalPurchases: totalPurchasesR, totalCost: totalCostR, grossProfit, profitPercent });
+    const totalInclTax = (invoices || []).reduce((s, i) => s + Number(i.total ?? 0), 0);
+    res.json({ from, to, totalSales: totalSalesR, totalSalesInclTax: Math.round(totalInclTax * 100) / 100, totalPurchases: totalPurchasesR, totalCost: totalCostR, grossProfit, profitPercent });
   } catch (err) {
     next(err);
   }
@@ -380,6 +382,7 @@ router.get('/pnl-cash', async (req, res, next) => {
       .lte('paid_at', to);
     if (incErr) throw incErr;
     const cashIn = (incomePayments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+    const invoiceIdsPaid = [...new Set((incomePayments || []).map((p) => p.invoice_id).filter(Boolean))];
 
     // Cash paid to suppliers in the period
     const { data: expensePayments, error: expErr } = await supabase
@@ -391,29 +394,33 @@ router.get('/pnl-cash', async (req, res, next) => {
     if (expErr) throw expErr;
     const cashOut = (expensePayments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
 
-    // COGS: for invoices that received payments in this period, sum their cost_amount
-    const invoiceIds = [...new Set((incomePayments || []).map((p) => p.invoice_id).filter(Boolean))];
+    // COGS and revenue (excl. tax): for invoices that received payments in this period
     let totalCost = 0;
-    if (invoiceIds.length > 0) {
-      const { data: items, error: itemsErr } = await supabase
-        .from('invoice_items')
-        .select('cost_amount')
-        .in('invoice_id', invoiceIds);
+    let revenueExclTax = 0;
+    if (invoiceIdsPaid.length > 0) {
+      const [{ data: items, error: itemsErr }, { data: invs }] = await Promise.all([
+        supabase.from('invoice_items').select('cost_amount').in('invoice_id', invoiceIdsPaid),
+        supabase.from('invoices').select('subtotal').in('id', invoiceIdsPaid),
+      ]);
       if (!itemsErr) totalCost = (items || []).reduce((s, r) => s + Number(r.cost_amount || 0), 0);
+      revenueExclTax = (invs || []).reduce((s, i) => s + Number(i.subtotal ?? 0), 0);
     }
 
     const cashInR = Math.round(cashIn * 100) / 100;
     const cashOutR = Math.round(cashOut * 100) / 100;
     const totalCostR = Math.round(totalCost * 100) / 100;
+    const revenueR = Math.round(revenueExclTax * 100) / 100;
     const netCashFlow = Math.round((cashInR - cashOutR) * 100) / 100;
-    const grossProfit = Math.round((cashInR - totalCostR) * 100) / 100;
-    const profitPercent = cashInR > 0 ? Math.round(grossProfit / cashInR * 10000) / 100 : 0;
+    // Gross profit = revenue (excl. tax) - COGS; tax is not your income
+    const grossProfit = Math.round((revenueR - totalCostR) * 100) / 100;
+    const profitPercent = revenueR > 0 ? Math.round(grossProfit / revenueR * 10000) / 100 : 0;
 
     res.json({
       from,
       to,
       cashIn: cashInR,
       cashOut: cashOutR,
+      revenue: revenueR,
       totalCost: totalCostR,
       netCashFlow,
       grossProfit,

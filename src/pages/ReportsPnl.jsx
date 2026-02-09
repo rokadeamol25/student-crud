@@ -148,6 +148,12 @@ export default function ReportsPnl() {
                 <span className="report-card__label">Cash received</span>
                 <span className="report-card__value">{formatMoney(data.cashIn, tenant)}</span>
               </div>
+              {data.revenue != null && (
+                <div className="report-card">
+                  <span className="report-card__label">Revenue (excl. tax)</span>
+                  <span className="report-card__value">{formatMoney(data.revenue, tenant)}</span>
+                </div>
+              )}
               <div className="report-card">
                 <span className="report-card__label">Cash paid (suppliers)</span>
                 <span className="report-card__value">{formatMoney(data.cashOut, tenant)}</span>
@@ -175,9 +181,15 @@ export default function ReportsPnl() {
             /* ---- Accrual-basis view ---- */
             <div className="report-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(10rem, 1fr))', gap: '1rem' }}>
               <div className="report-card">
-                <span className="report-card__label">Total sales</span>
+                <span className="report-card__label">Total sales (excl. tax)</span>
                 <span className="report-card__value">{formatMoney(data.totalSales, tenant)}</span>
               </div>
+              {data.totalSalesInclTax != null && (
+                <div className="report-card">
+                  <span className="report-card__label">Invoice total (incl. tax)</span>
+                  <span className="report-card__value">{formatMoney(data.totalSalesInclTax, tenant)}</span>
+                </div>
+              )}
               <div className="report-card">
                 <span className="report-card__label">Total purchases</span>
                 <span className="report-card__value">{formatMoney(data.totalPurchases, tenant)}</span>

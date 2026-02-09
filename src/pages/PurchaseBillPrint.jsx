@@ -2,8 +2,11 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useBusinessConfig } from '../hooks/useBusinessConfig';
+import { columnLabel, INVOICE_COLS_BY_TRACKING_TYPE } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import { amountInWords, formatDatePrint } from '../lib/amountInWords';
 import html2pdf from 'html2pdf.js';
 
 /**
@@ -15,6 +18,17 @@ export default function PurchaseBillPrint() {
   const { id } = useParams();
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
+  const { invoiceLineItems } = useBusinessConfig();
+  const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
+  const extraCols = (() => {
+    const allowed = INVOICE_COLS_BY_TRACKING_TYPE[defaultTrackingType];
+    return Object.keys(invoiceLineItems).filter((k) => {
+      if (!invoiceLineItems[k]) return false;
+      if (k === 'imei') return false;
+      if (!allowed) return true;
+      return allowed.includes(k);
+    });
+  })();
   const [bill, setBill] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -49,41 +63,78 @@ export default function PurchaseBillPrint() {
     };
   }, [tenant?.invoice_page_size]);
 
+  // Override CSS variables to white-paper values so html2canvas captures white/black
+  const WHITE_PAPER_VARS = {
+    '--bg': '#fff', '--bg-elevated': '#fff', '--bg-card': '#fff',
+    '--text': '#000', '--text-muted': '#444',
+    '--accent': '#000', '--accent-hover': '#000',
+    '--border': '#333', '--shadow': 'none', '--shadow-lg': 'none', '--overlay': 'transparent',
+  };
+
   async function handleDownloadPdf() {
     const el = printAreaRef.current;
     if (!el || !bill) return;
     setPdfGenerating(true);
     try {
       const pageSize = tenant?.invoice_page_size === 'Letter' ? 'letter' : 'a4';
+
+      // 1. Override CSS variables on the element
+      Object.entries(WHITE_PAPER_VARS).forEach(([k, v]) => el.style.setProperty(k, v));
+      el.style.background = '#fff';
+      el.style.color = '#000';
+      el.style.border = 'none';
+      el.style.boxShadow = 'none';
+
+      // 2. Override badges
+      const badges = el.querySelectorAll('.badge');
+      badges.forEach((b) => {
+        b.dataset.origStyle = b.style.cssText;
+        b.style.cssText = 'background:#fff !important;color:#000 !important;border:1px solid #555 !important;';
+      });
+
+      // 3. Override table header for white-paper readability
+      const thead = el.querySelector('.invoice-print__table thead tr');
+      if (thead) { thead.dataset.origStyle = thead.style.cssText; thead.style.cssText = 'background:#f0f0f0 !important;'; }
+      const ths = el.querySelectorAll('.invoice-print__table th');
+      ths.forEach((th) => { th.dataset.origStyle = th.style.cssText; th.style.cssText += 'color:#000 !important;'; });
+
+      // 4. Expand table for capture
       const tableWrap = el.querySelector('.purchase-bill-print__table-wrap');
       const table = el.querySelector('.purchase-bill-print__table');
-      if (tableWrap) {
-        tableWrap.style.overflow = 'visible';
-        tableWrap.style.minWidth = '0';
-      }
+      if (tableWrap) { tableWrap.style.overflow = 'visible'; tableWrap.style.minWidth = '0'; }
       if (table) table.style.minWidth = '0';
       const origWidth = el.style.width;
       const origMaxWidth = el.style.maxWidth;
       el.style.width = '700px';
       el.style.maxWidth = '700px';
 
+      // 4. Wait for repaint
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 80)));
+
+      // 5. Capture
       await html2pdf()
         .set({
           margin: [8, 5, 8, 5],
           filename: `purchase-bill-${(bill.bill_number || 'bill').replace(/\s+/g, '-')}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, windowWidth: 700 },
+          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, windowWidth: 700, backgroundColor: '#ffffff' },
           jsPDF: { unit: 'mm', format: pageSize, orientation: 'portrait' },
         })
         .from(el)
         .save();
 
+      // 6. Restore
+      Object.keys(WHITE_PAPER_VARS).forEach((k) => el.style.removeProperty(k));
+      el.style.background = '';
+      el.style.color = '';
+      el.style.border = '';
+      el.style.boxShadow = '';
       el.style.width = origWidth;
       el.style.maxWidth = origMaxWidth;
-      if (tableWrap) {
-        tableWrap.style.overflow = '';
-        tableWrap.style.minWidth = '';
-      }
+      badges.forEach((b) => { b.style.cssText = b.dataset.origStyle || ''; delete b.dataset.origStyle; });
+      if (thead) { thead.style.cssText = thead.dataset.origStyle || ''; delete thead.dataset.origStyle; }
+      ths.forEach((th) => { th.style.cssText = th.dataset.origStyle || ''; delete th.dataset.origStyle; });
+      if (tableWrap) { tableWrap.style.overflow = ''; tableWrap.style.minWidth = ''; }
       if (table) table.style.minWidth = '';
 
       showToast('PDF downloaded', 'success');
@@ -126,6 +177,7 @@ export default function PurchaseBillPrint() {
       </div>
 
       <div className="invoice-print purchase-bill-print" ref={printAreaRef}>
+        {/* ── Header: Two-column ── */}
         <header className="invoice-print__header">
           <div className="invoice-print__header-left">
             {tenant?.logo_url && (
@@ -134,54 +186,59 @@ export default function PurchaseBillPrint() {
             <div>
               <h1 className="invoice-print__shop">{tenant?.name || 'Shop'}</h1>
               {tenant?.gstin && <p className="invoice-print__meta">GSTIN: {tenant.gstin}</p>}
-              <p className="invoice-print__meta">Purchase bill</p>
+              {tenant?.address && <p className="invoice-print__meta">{tenant.address}</p>}
+              {tenant?.phone && <p className="invoice-print__meta">{tenant.phone}</p>}
             </div>
           </div>
-          <div className="invoice-print__num">
-            <strong>{bill.bill_number}</strong>
-            <br />
-            <span>{bill.bill_date}</span>
+          <div className="invoice-print__header-right">
+            <h2 className="invoice-print__title">PURCHASE BILL</h2>
+            <p className="invoice-print__header-detail"><span>No:</span> <strong>{bill.bill_number}</strong></p>
+            <p className="invoice-print__header-detail"><span>Date:</span> <strong>{formatDatePrint(bill.bill_date)}</strong></p>
           </div>
         </header>
 
+        {/* ── Parties: Two-column ── */}
         <div className="invoice-print__parties">
-          <div>
+          <div className="invoice-print__party">
             <h3>Supplier</h3>
             <p className="invoice-print__customer">{bill.supplier?.name ?? '—'}</p>
             {bill.supplier?.phone && <p>{bill.supplier.phone}</p>}
             {bill.supplier?.address && <p className="invoice-print__address">{bill.supplier.address}</p>}
           </div>
+          <div className="invoice-print__party invoice-print__party--right">
+            <h3>Bill Details</h3>
+            <p><span className="invoice-print__detail-label">Bill No:</span> {bill.bill_number}</p>
+            <p><span className="invoice-print__detail-label">Date:</span> {formatDatePrint(bill.bill_date)}</p>
+            {bill.status && (
+              <p><span className="invoice-print__detail-label">Status:</span> <span className={`badge badge--${bill.status === 'draft' ? 'draft' : bill.status === 'recorded' ? 'sent' : 'paid'}`}>{bill.status}</span></p>
+            )}
+          </div>
         </div>
 
+        {/* ── Items table ── */}
         <div className="purchase-bill-print__table-wrap invoice-print__table-wrap">
           <table className="purchase-bill-print__table invoice-print__table">
             <thead>
               <tr>
-                <th>#</th>
+                <th className="col-num">#</th>
                 <th>Product</th>
-                <th>Type</th>
                 {hasSerial && <th>Serial / IMEI</th>}
                 {hasBatch && <th>Batch</th>}
-                <th>Qty</th>
-                <th>Unit price</th>
-                <th>Amount</th>
+                {extraCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
+                <th className="col-right">Qty</th>
+                <th className="col-right">Unit Price</th>
+                <th className="col-right">Amount</th>
               </tr>
             </thead>
             <tbody>
               {items.map((it, i) => {
                 const product = it.product || {};
-                const trackingType = product.tracking_type || 'quantity';
                 const serials = it.serials || [];
                 const batches = it.batches || [];
                 return (
                   <tr key={it.id || i}>
-                    <td>{i + 1}</td>
+                    <td className="col-num">{i + 1}</td>
                     <td>{product.name ?? '—'}</td>
-                    <td>
-                      <span className={`badge badge--${trackingType === 'serial' ? 'sent' : trackingType === 'batch' ? 'paid' : 'draft'}`} style={{ fontSize: '0.7rem' }}>
-                        {trackingType}
-                      </span>
-                    </td>
                     {hasSerial && (
                       <td>
                         {serials.length > 0 ? (
@@ -212,9 +269,10 @@ export default function PurchaseBillPrint() {
                         )}
                       </td>
                     )}
-                    <td>{Number(it.quantity)}</td>
-                    <td>{formatMoney(it.purchase_price, tenant)}</td>
-                    <td>{formatMoney(it.amount, tenant)}</td>
+                    {extraCols.map((col) => <td key={col}>{product[col] || '—'}</td>)}
+                    <td className="col-right">{Number(it.quantity)}</td>
+                    <td className="col-right">{formatMoney(it.purchase_price, tenant)}</td>
+                    <td className="col-right">{formatMoney(it.amount, tenant)}</td>
                   </tr>
                 );
               })}
@@ -222,19 +280,28 @@ export default function PurchaseBillPrint() {
           </table>
         </div>
 
-        <div className="invoice-print__totals">
-          <div className="invoice-print__total">
+        {/* ── Totals box ── */}
+        <div className="invoice-print__totals-box">
+          <div className="invoice-print__total-row invoice-print__total-row--grand">
             <span>Total</span>
             <span>{formatMoney(bill.total, tenant)}</span>
           </div>
         </div>
 
-        {bill.status !== 'draft' && (
-          <p className="invoice-print__footer" style={{ marginTop: '1rem' }}>
-            Amount paid: {formatMoney(bill.amount_paid ?? 0, tenant)}
-            {Number(bill.balance) > 0 && <> · Balance: {formatMoney(bill.balance, tenant)}</>}
-          </p>
-        )}
+        {/* ── Amount in words ── */}
+        <div className="invoice-print__words">
+          {amountInWords(Number(bill.total))}
+        </div>
+
+        {/* ── Footer / Payment info ── */}
+        <div className="invoice-print__footer-section">
+          {bill.status !== 'draft' && (
+            <p className="invoice-print__footer">
+              Amount paid: {formatMoney(bill.amount_paid ?? 0, tenant)}
+              {Number(bill.balance) > 0 && <> &middot; Balance: {formatMoney(bill.balance, tenant)}</>}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

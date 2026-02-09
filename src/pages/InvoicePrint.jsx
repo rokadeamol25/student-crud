@@ -6,6 +6,7 @@ import { useBusinessConfig } from '../hooks/useBusinessConfig';
 import { columnLabel, INVOICE_COLS_BY_TRACKING_TYPE } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import { amountInWords, formatDatePrint } from '../lib/amountInWords';
 import html2pdf from 'html2pdf.js';
 
 /**
@@ -67,6 +68,22 @@ export default function InvoicePrint() {
     };
   }, [tenant?.invoice_page_size]);
 
+  // CSS variables that define the dark theme — override them to white-paper values
+  // on the captured element so html2canvas sees white bg / black text.
+  const WHITE_PAPER_VARS = {
+    '--bg': '#fff',
+    '--bg-elevated': '#fff',
+    '--bg-card': '#fff',
+    '--text': '#000',
+    '--text-muted': '#444',
+    '--accent': '#000',
+    '--accent-hover': '#000',
+    '--border': '#333',
+    '--shadow': 'none',
+    '--shadow-lg': 'none',
+    '--overlay': 'transparent',
+  };
+
   async function handleDownloadPdf() {
     const el = printAreaRef.current;
     if (!el || !invoice) return;
@@ -74,39 +91,64 @@ export default function InvoicePrint() {
     try {
       const pageSize = tenant?.invoice_page_size === 'Letter' ? 'letter' : 'a4';
 
-      // Temporarily expand the table wrapper so html2canvas captures the full table
+      // 1. Override CSS variables on the element so every var() resolves to white-paper values
+      Object.entries(WHITE_PAPER_VARS).forEach(([k, v]) => el.style.setProperty(k, v));
+      el.style.background = '#fff';
+      el.style.color = '#000';
+      el.style.border = 'none';
+      el.style.boxShadow = 'none';
+
+      // 2. Override badges (they use hard-coded rgba not variables)
+      const badges = el.querySelectorAll('.badge');
+      badges.forEach((b) => {
+        b.dataset.origStyle = b.style.cssText;
+        b.style.cssText = 'background:#fff !important;color:#000 !important;border:1px solid #555 !important;';
+      });
+
+      // 3. Override table header for white-paper readability
+      const thead = el.querySelector('.invoice-print__table thead tr');
+      if (thead) { thead.dataset.origStyle = thead.style.cssText; thead.style.cssText = 'background:#f0f0f0 !important;'; }
+      const ths = el.querySelectorAll('.invoice-print__table th');
+      ths.forEach((th) => { th.dataset.origStyle = th.style.cssText; th.style.cssText += 'color:#000 !important;'; });
+
+      // 4. Expand table for capture
       const tableWrap = el.querySelector('.invoice-print__table-wrap');
-      if (tableWrap) {
-        tableWrap.style.overflow = 'visible';
-        tableWrap.style.minWidth = '0';
-      }
+      if (tableWrap) { tableWrap.style.overflow = 'visible'; tableWrap.style.minWidth = '0'; }
       const table = el.querySelector('.invoice-print__table');
       if (table) table.style.minWidth = '0';
 
-      // Force the print area to a fixed width so the table compresses to fit portrait A4
       const origWidth = el.style.width;
       const origMaxWidth = el.style.maxWidth;
       el.style.width = '700px';
       el.style.maxWidth = '700px';
 
+      // 4. Wait one frame so browser paints the white version
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 80)));
+
+      // 5. Capture
       await html2pdf()
         .set({
           margin: [8, 5, 8, 5],
           filename: `invoice-${(invoice.invoice_number || 'invoice').replace(/\s+/g, '-')}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, windowWidth: 700 },
+          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, windowWidth: 700, backgroundColor: '#ffffff' },
           jsPDF: { unit: 'mm', format: pageSize, orientation: 'portrait' },
         })
         .from(el)
         .save();
 
-      // Restore styles
+      // 6. Restore everything
+      Object.keys(WHITE_PAPER_VARS).forEach((k) => el.style.removeProperty(k));
+      el.style.background = '';
+      el.style.color = '';
+      el.style.border = '';
+      el.style.boxShadow = '';
       el.style.width = origWidth;
       el.style.maxWidth = origMaxWidth;
-      if (tableWrap) {
-        tableWrap.style.overflow = '';
-        tableWrap.style.minWidth = '';
-      }
+      badges.forEach((b) => { b.style.cssText = b.dataset.origStyle || ''; delete b.dataset.origStyle; });
+      if (thead) { thead.style.cssText = thead.dataset.origStyle || ''; delete thead.dataset.origStyle; }
+      ths.forEach((th) => { th.style.cssText = th.dataset.origStyle || ''; delete th.dataset.origStyle; });
+      if (tableWrap) { tableWrap.style.overflow = ''; tableWrap.style.minWidth = ''; }
       if (table) table.style.minWidth = '';
 
       showToast('PDF downloaded', 'success');
@@ -264,6 +306,7 @@ export default function InvoicePrint() {
         </div>
       </div>
       <div className="invoice-print" ref={printAreaRef}>
+        {/* ── Header: Two-column ── */}
         <header className="invoice-print__header">
           <div className="invoice-print__header-left">
             {tenant?.logo_url && (
@@ -272,54 +315,62 @@ export default function InvoicePrint() {
             <div>
               <h1 className="invoice-print__shop">{tenant?.name || 'Shop'}</h1>
               {tenant?.gstin && <p className="invoice-print__meta">GSTIN: {tenant.gstin}</p>}
-              <p className="invoice-print__meta">Invoice</p>
+              {tenant?.address && <p className="invoice-print__meta">{tenant.address}</p>}
+              {tenant?.phone && <p className="invoice-print__meta">{tenant.phone}</p>}
             </div>
           </div>
-          <div className="invoice-print__num">
-            <strong>{invoice.invoice_number}</strong>
-            <br />
-            <span>{invoice.invoice_date}</span>
+          <div className="invoice-print__header-right">
+            <h2 className="invoice-print__title">INVOICE</h2>
+            <p className="invoice-print__header-detail"><span>No:</span> <strong>{invoice.invoice_number}</strong></p>
+            <p className="invoice-print__header-detail"><span>Date:</span> <strong>{formatDatePrint(invoice.invoice_date)}</strong></p>
           </div>
         </header>
+
         {tenant?.invoice_header_note && (
           <div className="invoice-print__header-note">{tenant.invoice_header_note}</div>
         )}
+
+        {/* ── Parties: Two-column ── */}
         <div className="invoice-print__parties">
-          <div>
-            <h3>Bill to</h3>
+          <div className="invoice-print__party">
+            <h3>Bill To</h3>
             <p className="invoice-print__customer">{customer.name}</p>
-            {customer.email && <p>{customer.email}</p>}
             {customer.phone && <p>{customer.phone}</p>}
+            {customer.email && <p>{customer.email}</p>}
             {customer.address && <p className="invoice-print__address">{customer.address}</p>}
           </div>
+          <div className="invoice-print__party invoice-print__party--right">
+            <h3>Invoice Details</h3>
+            <p><span className="invoice-print__detail-label">Invoice:</span> {invoice.invoice_number}</p>
+            <p><span className="invoice-print__detail-label">Date:</span> {formatDatePrint(invoice.invoice_date)}</p>
+            {invoice.due_date && <p><span className="invoice-print__detail-label">Due:</span> {formatDatePrint(invoice.due_date)}</p>}
+            {invoice.status && invoice.status !== 'paid' && (
+              <p><span className="invoice-print__detail-label">Status:</span> <span className={`badge badge--${invoice.status}`}>{invoice.status}</span></p>
+            )}
+          </div>
         </div>
+
+        {/* ── Items table ── */}
         <div className="invoice-print__table-wrap">
           <table className="invoice-print__table">
             <thead>
               <tr>
-                <th>#</th>
+                <th className="col-num">#</th>
                 <th>Description</th>
-                <th>Type</th>
                 {hasSerial && <th>Serial / IMEI</th>}
                 {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
-                <th>Qty</th>
-                <th>Unit price</th>
-                <th>Amount</th>
+                <th className="col-right">Qty</th>
+                <th className="col-right">Unit Price</th>
+                <th className="col-right">Amount</th>
               </tr>
             </thead>
             <tbody>
               {items.map((row, i) => {
-                const trackingType = row.product?.tracking_type || 'quantity';
                 const serials = row.serials || [];
                 return (
                   <tr key={row.id || i}>
-                    <td>{i + 1}</td>
+                    <td className="col-num">{i + 1}</td>
                     <td>{row.description}</td>
-                    <td>
-                      <span className={`badge badge--${trackingType === 'serial' ? 'sent' : trackingType === 'batch' ? 'paid' : 'draft'}`} style={{ fontSize: '0.7rem' }}>
-                        {trackingType}
-                      </span>
-                    </td>
                     {hasSerial && (
                       <td>
                         {serials.length > 0 ? (
@@ -334,37 +385,48 @@ export default function InvoicePrint() {
                       </td>
                     )}
                     {extraInvCols.map((col) => <td key={col}>{row[col] || '—'}</td>)}
-                    <td>{Number(row.quantity)}</td>
-                    <td>{formatMoney(row.unit_price, tenant)}</td>
-                    <td>{formatMoney(row.amount, tenant)}</td>
+                    <td className="col-right">{Number(row.quantity)}</td>
+                    <td className="col-right">{formatMoney(row.unit_price, tenant)}</td>
+                    <td className="col-right">{formatMoney(row.amount, tenant)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        <div className="invoice-print__totals">
+
+        {/* ── Totals box ── */}
+        <div className="invoice-print__totals-box">
           {invoice.tax_percent != null && Number(invoice.tax_percent) > 0 && (
             <>
-              <div className="invoice-print__total">
+              <div className="invoice-print__total-row">
                 <span>Subtotal</span>
                 <span>{formatMoney(invoice.subtotal ?? invoice.total, tenant)}</span>
               </div>
-              <div className="invoice-print__total">
+              <div className="invoice-print__total-row">
                 <span>Tax ({Number(invoice.tax_percent)}%)</span>
                 <span>{formatMoney(invoice.tax_amount ?? 0, tenant)}</span>
               </div>
             </>
           )}
-          <div className="invoice-print__total">
+          <div className="invoice-print__total-row invoice-print__total-row--grand">
             <span>Total</span>
             <span>{formatMoney(invoice.total, tenant)}</span>
           </div>
         </div>
-        <p className="invoice-print__footer">Thank you for your business.</p>
-        {tenant?.invoice_footer_note && (
-          <div className="invoice-print__footer-note">{tenant.invoice_footer_note}</div>
-        )}
+
+        {/* ── Amount in words ── */}
+        <div className="invoice-print__words">
+          {amountInWords(Number(invoice.total))}
+        </div>
+
+        {/* ── Footer ── */}
+        <div className="invoice-print__footer-section">
+          <p className="invoice-print__footer">Thank you for your business.</p>
+          {tenant?.invoice_footer_note && (
+            <div className="invoice-print__footer-note">{tenant.invoice_footer_note}</div>
+          )}
+        </div>
       </div>
 
       {paymentModalOpen && (

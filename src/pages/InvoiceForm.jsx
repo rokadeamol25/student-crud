@@ -393,10 +393,6 @@ export default function InvoiceForm() {
                     {products.map((p) => <option key={p.id} value={p.id}>{productLabelFn(p, formatMoney, tenant)}</option>)}
                   </select>
                 </label>
-                <div className="form__label">
-                  <span>Type</span>
-                  <span className="form__readonly">{product ? <TrackingBadge type={product.tracking_type} /> : '—'}</span>
-                </div>
                 {isSerial && (
                   <div className="form__label">
                     <span>Serial (IMEI) to sell</span>
@@ -438,7 +434,6 @@ export default function InvoiceForm() {
               <thead>
                 <tr>
                   <th>Product (optional)</th>
-                  <th>Type</th>
                   {(defaultTrackingType === 'serial' || hasSerialOrBatch) && <th>Serial (IMEI)</th>}
                   <th>Description</th>
                   {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
@@ -460,7 +455,6 @@ export default function InvoiceForm() {
                           {products.map((p) => <option key={p.id} value={p.id}>{productLabelFn(p, formatMoney, tenant)}</option>)}
                         </select>
                       </td>
-                      <td>{product ? <TrackingBadge type={product.tracking_type} /> : '—'}</td>
                       {(defaultTrackingType === 'serial' || hasSerialOrBatch) && (
                         <td>
                           {isSerial ? (
