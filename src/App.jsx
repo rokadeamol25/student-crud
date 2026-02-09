@@ -16,9 +16,9 @@ import SupplierLedger from './pages/SupplierLedger';
 import PurchaseBills from './pages/PurchaseBills';
 import CreatePurchaseBill from './pages/CreatePurchaseBill';
 import PurchaseBill from './pages/PurchaseBill';
+import PurchaseBillPrint from './pages/PurchaseBillPrint';
 import Invoices from './pages/Invoices';
-import CreateInvoice from './pages/CreateInvoice';
-import EditInvoice from './pages/EditInvoice';
+import InvoiceForm from './pages/InvoiceForm';
 import InvoicePrint from './pages/InvoicePrint';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
@@ -71,9 +71,10 @@ export default function App() {
             <Route path="purchase-bills" element={<PurchaseBills />} />
             <Route path="purchase-bills/new" element={<CreatePurchaseBill />} />
             <Route path="purchase-bills/:id" element={<PurchaseBill />} />
+            <Route path="purchase-bills/:id/print" element={<PurchaseBillPrint />} />
             <Route path="invoices" element={<Invoices />} />
-            <Route path="invoices/new" element={<CreateInvoice />} />
-            <Route path="invoices/:id/edit" element={<EditInvoice />} />
+            <Route path="invoices/new" element={<InvoiceForm />} />
+            <Route path="invoices/:id/edit" element={<InvoiceForm />} />
             <Route path="invoices/:id/print" element={<InvoicePrint />} />
             <Route path="reports" element={<Reports />} />
             <Route path="reports/pnl" element={<ReportsPnl />} />

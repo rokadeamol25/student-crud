@@ -3,12 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useBusinessConfig } from '../hooks/useBusinessConfig';
-import { columnLabel } from '../config/businessTypes';
+import { columnLabel, INVOICE_COLS_BY_TRACKING_TYPE } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ListSkeleton from '../components/ListSkeleton';
 
 const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0 });
+
+function TrackingBadge({ type }) {
+  const t = type || 'quantity';
+  const colors = { quantity: 'badge--draft', serial: 'badge--sent', batch: 'badge--paid' };
+  return <span className={`badge ${colors[t] || ''}`} style={{ fontSize: '0.7rem' }}>{t}</span>;
+}
 
 function productLabelFn(p, fmt, tenant) {
   const parts = [p.name];
@@ -40,12 +46,17 @@ export default function CreateInvoice() {
   const navigate = useNavigate();
   const { invoiceProductSearch, invoiceLineItems } = useBusinessConfig();
   const isTypeahead = invoiceProductSearch.method === 'typeahead';
+  const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
 
-  // Dynamic extra columns for invoice line items
-  const extraInvCols = useMemo(() =>
-    Object.keys(invoiceLineItems).filter((k) => invoiceLineItems[k]),
-    [invoiceLineItems]
-  );
+  const extraInvCols = useMemo(() => {
+    const allowed = INVOICE_COLS_BY_TRACKING_TYPE[defaultTrackingType];
+    return Object.keys(invoiceLineItems).filter((k) => {
+      if (!invoiceLineItems[k]) return false;
+      if (k === 'imei') return false;
+      if (!allowed) return true;
+      return allowed.includes(k);
+    });
+  }, [invoiceLineItems, defaultTrackingType]);
 
   const [customers, setCustomers] = useState([]);
   const [products, setProducts] = useState([]);
@@ -196,6 +207,11 @@ export default function CreateInvoice() {
   const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
   const total = Math.round((subtotal + taxAmount) * 100) / 100;
 
+  const hasSerialOrBatch = items.some((it) => {
+    const p = products.find((pr) => pr.id === it.productId);
+    return p && (p.tracking_type === 'serial' || p.tracking_type === 'batch');
+  });
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
@@ -219,7 +235,7 @@ export default function CreateInvoice() {
   }
 
   // Meta fields to show in typeahead results (show all that have a value)
-  const META_COLS = ['company', 'ram_storage', 'color', 'imei'];
+  const META_COLS = ['company', 'ram_storage', 'color'];
 
   if (loadingOptions && customers.length === 0 && products.length === 0) {
     return (
@@ -236,6 +252,9 @@ export default function CreateInvoice() {
   return (
     <div className="page">
       <h1 className="page__title">New invoice</h1>
+      <p className="page__muted" style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+        Product type from Settings: <TrackingBadge type={defaultTrackingType} /> — Serial/Batch: stock is allocated when you send the invoice.
+      </p>
       {(saveStatus === 'saving' || saveStatus === 'saved') && (
         <p className="page__muted invoice-form__autosave" style={{ marginBottom: '0.5rem' }}>
           {saveStatus === 'saving' ? 'Saving…' : lastSavedAt ? `Saved at ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Saved'}
@@ -264,6 +283,10 @@ export default function CreateInvoice() {
           </label>
         </div>
         <h3 className="invoice-form__items-title">Items</h3>
+        <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+          Type shows each line’s product: quantity, serial, or batch.
+          {hasSerialOrBatch && ' Stock is deducted when you send the invoice. For serial products you can select which serials to sell when sending.'}
+        </p>
         {isTypeahead && (
           <div className="typeahead-wrap" style={{ marginBottom: '0.75rem' }}>
             <label className="form__label" style={{ marginBottom: 0 }}>
@@ -290,7 +313,7 @@ export default function CreateInvoice() {
                       <span className="typeahead-results__name">
                         {p.name}
                         {META_COLS.map((col) => p[col] ? (
-                          <span key={col} className="typeahead-results__meta"> · {col === 'imei' ? `IMEI: ${p[col]}` : p[col]}</span>
+                          <span key={col} className="typeahead-results__meta"> · {p[col]}</span>
                         ) : null)}
                       </span>
                       <span className="typeahead-results__price">{formatMoney(p.price, tenant)}</span>
@@ -313,6 +336,12 @@ export default function CreateInvoice() {
                   {products.map((p) => <option key={p.id} value={p.id}>{productLabelFn(p, formatMoney, tenant)}</option>)}
                 </select>
               </label>
+              <div className="form__label">
+                <span>Type</span>
+                <span className="form__readonly">
+                  {(() => { const p = products.find((pr) => pr.id === it.productId); return p ? <TrackingBadge type={p.tracking_type} /> : '—'; })()}
+                </span>
+              </div>
               <label className="form__label">
                 <span>Description</span>
                 <input className="form__input" value={it.description} onChange={(e) => updateLine(i, 'description', e.target.value)} placeholder="Description" />
@@ -347,6 +376,7 @@ export default function CreateInvoice() {
               <thead>
                 <tr>
                   <th>Product (optional)</th>
+                  <th>Type</th>
                   <th>Description</th>
                   {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
                   <th>Qty</th>
@@ -356,30 +386,34 @@ export default function CreateInvoice() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((it, i) => (
-                  <tr key={i}>
-                    <td>
-                      <select className="form__input form__input--sm" value={it.productId} onChange={(e) => updateLine(i, 'productId', e.target.value)}>
-                        <option value="">—</option>
-                        {products.map((p) => <option key={p.id} value={p.id}>{productLabelFn(p, formatMoney, tenant)}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <input className="form__input form__input--sm" value={it.description} onChange={(e) => updateLine(i, 'description', e.target.value)} placeholder="Description" />
-                    </td>
-                    {extraInvCols.map((col) => <td key={col}>{it[col] || '—'}</td>)}
-                    <td>
-                      <input type="number" min="0.01" step="0.01" className="form__input form__input--sm form__input--narrow" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
-                    </td>
-                    <td>
-                      <input type="number" min="0" step="0.01" className="form__input form__input--sm form__input--narrow" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
-                    </td>
-                    <td>{formatMoney((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), tenant)}</td>
-                    <td>
-                      <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>Remove</button>
-                    </td>
-                  </tr>
-                ))}
+                {items.map((it, i) => {
+                  const product = products.find((p) => p.id === it.productId);
+                  return (
+                    <tr key={i}>
+                      <td>
+                        <select className="form__input form__input--sm" value={it.productId} onChange={(e) => updateLine(i, 'productId', e.target.value)}>
+                          <option value="">—</option>
+                          {products.map((p) => <option key={p.id} value={p.id}>{productLabelFn(p, formatMoney, tenant)}</option>)}
+                        </select>
+                      </td>
+                      <td>{product ? <TrackingBadge type={product.tracking_type} /> : '—'}</td>
+                      <td>
+                        <input className="form__input form__input--sm" value={it.description} onChange={(e) => updateLine(i, 'description', e.target.value)} placeholder="Description" />
+                      </td>
+                      {extraInvCols.map((col) => <td key={col}>{it[col] || '—'}</td>)}
+                      <td>
+                        <input type="number" min="0.01" step="0.01" className="form__input form__input--sm form__input--narrow" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
+                      </td>
+                      <td>
+                        <input type="number" min="0" step="0.01" className="form__input form__input--sm form__input--narrow" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
+                      </td>
+                      <td>{formatMoney((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), tenant)}</td>
+                      <td>
+                        <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>Remove</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

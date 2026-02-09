@@ -360,6 +360,70 @@ router.get('/pnl', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/reports/pnl-cash — Cash-basis P&L.
+ * Revenue = actual payments received (from `payments` table, by paid_at date).
+ * Expenses = actual payments made to suppliers (from `purchase_payments` table, by paid_at date).
+ * COGS is still based on invoice_items.cost_amount for invoices whose payments fall in range.
+ */
+router.get('/pnl-cash', async (req, res, next) => {
+  try {
+    const { from, to } = parsePnLRange(req.query);
+    if (new Date(from) > new Date(to)) return res.status(400).json({ error: 'from must be before or equal to to' });
+
+    // Cash received from customers in the period
+    const { data: incomePayments, error: incErr } = await supabase
+      .from('payments')
+      .select('amount, invoice_id')
+      .eq('tenant_id', req.tenantId)
+      .gte('paid_at', from)
+      .lte('paid_at', to);
+    if (incErr) throw incErr;
+    const cashIn = (incomePayments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+
+    // Cash paid to suppliers in the period
+    const { data: expensePayments, error: expErr } = await supabase
+      .from('purchase_payments')
+      .select('amount')
+      .eq('tenant_id', req.tenantId)
+      .gte('paid_at', from)
+      .lte('paid_at', to);
+    if (expErr) throw expErr;
+    const cashOut = (expensePayments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+
+    // COGS: for invoices that received payments in this period, sum their cost_amount
+    const invoiceIds = [...new Set((incomePayments || []).map((p) => p.invoice_id).filter(Boolean))];
+    let totalCost = 0;
+    if (invoiceIds.length > 0) {
+      const { data: items, error: itemsErr } = await supabase
+        .from('invoice_items')
+        .select('cost_amount')
+        .in('invoice_id', invoiceIds);
+      if (!itemsErr) totalCost = (items || []).reduce((s, r) => s + Number(r.cost_amount || 0), 0);
+    }
+
+    const cashInR = Math.round(cashIn * 100) / 100;
+    const cashOutR = Math.round(cashOut * 100) / 100;
+    const totalCostR = Math.round(totalCost * 100) / 100;
+    const netCashFlow = Math.round((cashInR - cashOutR) * 100) / 100;
+    const grossProfit = Math.round((cashInR - totalCostR) * 100) / 100;
+    const profitPercent = cashInR > 0 ? Math.round(grossProfit / cashInR * 10000) / 100 : 0;
+
+    res.json({
+      from,
+      to,
+      cashIn: cashInR,
+      cashOut: cashOutR,
+      totalCost: totalCostR,
+      netCashFlow,
+      grossProfit,
+      profitPercent,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/revenue-trend', async (req, res, next) => {
   try {
     const months = Math.min(24, Math.max(1, parseInt(req.query?.months, 10) || 6));
@@ -385,6 +449,64 @@ router.get('/revenue-trend', async (req, res, next) => {
       .sort((a, b) => a.month.localeCompare(b.month))
       .map((v) => ({ ...v, revenue: Math.round(v.revenue * 100) / 100 }));
     res.json({ data, months });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/reports/recalculate-costs
+ * Re-snapshots cost_price and cost_amount on all invoice_items where cost_price = 0
+ * using the current product.last_purchase_price. Useful after recording purchase bills
+ * for products that were already invoiced.
+ */
+router.post('/recalculate-costs', async (req, res, next) => {
+  try {
+    // Get all invoice items with cost_price = 0 that belong to this tenant's invoices
+    const { data: invoices, error: invErr } = await supabase
+      .from('invoices')
+      .select('id')
+      .eq('tenant_id', req.tenantId);
+    if (invErr) throw invErr;
+    const invoiceIds = (invoices || []).map((i) => i.id);
+    if (invoiceIds.length === 0) return res.json({ updated: 0 });
+
+    const { data: zeroItems, error: itemsErr } = await supabase
+      .from('invoice_items')
+      .select('id, product_id, quantity')
+      .in('invoice_id', invoiceIds)
+      .eq('cost_price', 0)
+      .not('product_id', 'is', null);
+    if (itemsErr) throw itemsErr;
+    if (!zeroItems || zeroItems.length === 0) return res.json({ updated: 0 });
+
+    // Collect unique product IDs and fetch their current last_purchase_price
+    const productIds = [...new Set(zeroItems.map((i) => i.product_id))];
+    const { data: products, error: prodErr } = await supabase
+      .from('products')
+      .select('id, last_purchase_price')
+      .eq('tenant_id', req.tenantId)
+      .in('id', productIds);
+    if (prodErr) throw prodErr;
+    const priceMap = Object.fromEntries(
+      (products || [])
+        .filter((p) => p.last_purchase_price != null && Number(p.last_purchase_price) > 0)
+        .map((p) => [p.id, Number(p.last_purchase_price)])
+    );
+
+    let updated = 0;
+    for (const item of zeroItems) {
+      const costPrice = priceMap[item.product_id];
+      if (!costPrice) continue;
+      const costAmount = Math.round(Number(item.quantity) * costPrice * 100) / 100;
+      const { error: upErr } = await supabase
+        .from('invoice_items')
+        .update({ cost_price: costPrice, cost_amount: costAmount })
+        .eq('id', item.id);
+      if (!upErr) updated++;
+    }
+
+    res.json({ updated, message: `Updated cost on ${updated} invoice items` });
   } catch (err) {
     next(err);
   }

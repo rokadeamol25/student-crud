@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 
@@ -27,12 +28,15 @@ const PRESETS = [
 
 export default function ReportsPnl() {
   const { token, tenant } = useAuth();
+  const { showToast } = useToast();
   const [presetId, setPresetId] = useState('this_month');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [basis, setBasis] = useState('accrual'); // 'accrual' | 'cash'
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [recalculating, setRecalculating] = useState(false);
 
   const range = PRESETS.find((p) => p.id === presetId)?.getRange() ?? { from: '', to: '' };
   const queryFrom = from || range.from;
@@ -45,15 +49,32 @@ export default function ReportsPnl() {
     }
     setLoading(true);
     setError('');
-    api.get(token, `/api/reports/pnl?from=${encodeURIComponent(queryFrom)}&to=${encodeURIComponent(queryTo)}`)
+    const endpoint = basis === 'cash' ? '/api/reports/pnl-cash' : '/api/reports/pnl';
+    api.get(token, `${endpoint}?from=${encodeURIComponent(queryFrom)}&to=${encodeURIComponent(queryTo)}`)
       .then(setData)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token, queryFrom, queryTo]);
+  }, [token, queryFrom, queryTo, basis]);
 
   useEffect(() => {
     fetchPnl();
   }, [fetchPnl]);
+
+  async function handleRecalculate() {
+    if (!token) return;
+    setRecalculating(true);
+    try {
+      const result = await api.post(token, '/api/reports/recalculate-costs', {});
+      showToast(result.message || `Updated ${result.updated} items`, 'success');
+      fetchPnl();
+    } catch (e) {
+      showToast(e.message || 'Failed to recalculate costs', 'error');
+    } finally {
+      setRecalculating(false);
+    }
+  }
+
+  const isCash = basis === 'cash';
 
   return (
     <div className="page">
@@ -61,9 +82,25 @@ export default function ReportsPnl() {
         <Link to="/reports" className="btn btn--ghost btn--sm">← Reports</Link>
       </div>
       <h1 className="page__title">Profit &amp; Loss</h1>
-      <p className="page__subtitle">Sales, cost of goods sold, and gross profit for a period.</p>
+      <p className="page__subtitle">
+        {isCash
+          ? 'Cash-basis: actual money received and paid in the period.'
+          : 'Accrual-basis: revenue recognised when invoiced, cost when goods sold.'}
+      </p>
 
-      <div className="page__toolbar reports-toolbar" style={{ marginBottom: '1.5rem' }}>
+      <div className="page__toolbar reports-toolbar" style={{ marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+        <label className="form__label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span>Basis:</span>
+          <select
+            className="form__input"
+            value={basis}
+            onChange={(e) => setBasis(e.target.value)}
+            style={{ width: 'auto' }}
+          >
+            <option value="accrual">Accrual (invoice-based)</option>
+            <option value="cash">Cash (payment-based)</option>
+          </select>
+        </label>
         <label className="form__label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span>Period:</span>
           <select
@@ -94,7 +131,7 @@ export default function ReportsPnl() {
 
       {!queryFrom || !queryTo ? (
         <section className="card page__section">
-          <p className="page__muted">Select a date range to see P&L.</p>
+          <p className="page__muted">Select a date range to see P&amp;L.</p>
         </section>
       ) : loading && !data ? (
         <section className="card page__section">
@@ -103,28 +140,74 @@ export default function ReportsPnl() {
       ) : data ? (
         <section className="card page__section">
           <p className="page__muted" style={{ marginBottom: '1rem' }}>{data.from} to {data.to}</p>
-          <div className="report-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(10rem, 1fr))', gap: '1rem' }}>
-            <div className="report-card">
-              <span className="report-card__label">Total sales</span>
-              <span className="report-card__value">{formatMoney(data.totalSales, tenant)}</span>
+
+          {isCash ? (
+            /* ---- Cash-basis view ---- */
+            <div className="report-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(10rem, 1fr))', gap: '1rem' }}>
+              <div className="report-card">
+                <span className="report-card__label">Cash received</span>
+                <span className="report-card__value">{formatMoney(data.cashIn, tenant)}</span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Cash paid (suppliers)</span>
+                <span className="report-card__value">{formatMoney(data.cashOut, tenant)}</span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Cost (COGS)</span>
+                <span className="report-card__value">{formatMoney(data.totalCost, tenant)}</span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Net cash flow</span>
+                <span className="report-card__value" style={{ color: data.netCashFlow >= 0 ? 'var(--accent)' : 'var(--danger, #e53e3e)' }}>
+                  {formatMoney(data.netCashFlow, tenant)}
+                </span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Gross profit</span>
+                <span className="report-card__value">{formatMoney(data.grossProfit, tenant)}</span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Profit %</span>
+                <span className="report-card__value">{data.profitPercent.toFixed(1)}%</span>
+              </div>
             </div>
-            <div className="report-card">
-              <span className="report-card__label">Total purchases</span>
-              <span className="report-card__value">{formatMoney(data.totalPurchases, tenant)}</span>
+          ) : (
+            /* ---- Accrual-basis view ---- */
+            <div className="report-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(10rem, 1fr))', gap: '1rem' }}>
+              <div className="report-card">
+                <span className="report-card__label">Total sales</span>
+                <span className="report-card__value">{formatMoney(data.totalSales, tenant)}</span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Total purchases</span>
+                <span className="report-card__value">{formatMoney(data.totalPurchases, tenant)}</span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Cost (COGS)</span>
+                <span className="report-card__value">{formatMoney(data.totalCost, tenant)}</span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Gross profit</span>
+                <span className="report-card__value">{formatMoney(data.grossProfit, tenant)}</span>
+              </div>
+              <div className="report-card">
+                <span className="report-card__label">Profit %</span>
+                <span className="report-card__value">{data.profitPercent.toFixed(1)}%</span>
+              </div>
             </div>
-            <div className="report-card">
-              <span className="report-card__label">Cost (COGS)</span>
-              <span className="report-card__value">{formatMoney(data.totalCost, tenant)}</span>
+          )}
+
+          {!isCash && data.totalCost === 0 && data.totalSales > 0 && (
+            <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+              <p className="page__muted" style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+                <strong>COGS is ₹0?</strong> If you recorded purchase bills after creating invoices,
+                the cost wasn't captured at invoice time. Click below to recalculate from current purchase prices.
+              </p>
+              <button type="button" className="btn btn--secondary btn--sm" onClick={handleRecalculate} disabled={recalculating}>
+                {recalculating ? 'Recalculating…' : 'Recalculate costs'}
+              </button>
             </div>
-            <div className="report-card">
-              <span className="report-card__label">Gross profit</span>
-              <span className="report-card__value">{formatMoney(data.grossProfit, tenant)}</span>
-            </div>
-            <div className="report-card">
-              <span className="report-card__label">Profit %</span>
-              <span className="report-card__value">{data.profitPercent.toFixed(1)}%</span>
-            </div>
-          </div>
+          )}
         </section>
       ) : null}
     </div>

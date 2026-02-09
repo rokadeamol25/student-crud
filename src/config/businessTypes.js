@@ -23,7 +23,8 @@ export const DEFAULTS = {
  * e.g. 'ram_storage' → 'RAM / Storage', 'hsn_sac_code' → 'HSN / SAC Code'
  */
 const LABEL_OVERRIDES = {
-  unit: 'Unit (e.g. pc, kg)',
+  unit: 'Unit (e.g. pc, kg, strip)',
+  sku: 'SKU / Barcode',
   hsn_sac_code: 'HSN / SAC Code',
   tax_percent: 'Tax % (per-product override)',
   company: 'Company / Brand',
@@ -54,6 +55,28 @@ export const RAM_STORAGE_OPTIONS = [
   '16GB/512GB',
   '16GB/1TB',
 ];
+
+/**
+ * Product form columns to show per tracking type (from Settings).
+ * When default type is batch/serial, only these columns are shown on the Product screen.
+ * IMEI/serial numbers are stored in product_serials (inventory), not on the product row.
+ */
+export const PRODUCT_COLS_BY_TRACKING_TYPE = {
+  quantity: null, // null = show all enabled columns from Settings
+  serial: ['company', 'ram_storage', 'color', 'unit', 'hsn_sac_code', 'tax_percent'],
+  batch: ['unit', 'hsn_sac_code', 'tax_percent', 'sku'],
+};
+
+/**
+ * Invoice line item columns to show per tracking type (from Settings).
+ * Drives which extra columns (company, ram_storage, etc.) appear on the invoice form/print.
+ * Serial numbers are selected via the Serial (IMEI) picker, not a static column.
+ */
+export const INVOICE_COLS_BY_TRACKING_TYPE = {
+  quantity: null, // null = show all enabled from invoiceLineItems
+  serial: ['company', 'ram_storage', 'color'],
+  batch: ['unit', 'sku', 'hsn_sac_code'],
+};
 
 /** Options for the Settings dropdown (value, label, short description). */
 export const BUSINESS_TYPE_OPTIONS = [

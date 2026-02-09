@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useBusinessConfig } from '../hooks/useBusinessConfig';
-import { RAM_STORAGE_OPTIONS, columnLabel } from '../config/businessTypes';
+import { RAM_STORAGE_OPTIONS, columnLabel, PRODUCT_COLS_BY_TRACKING_TYPE } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -13,7 +13,6 @@ const PAGE_SIZE = 20;
 
 // Columns that use a picklist (select) instead of free text
 const PICKLIST_COLS = { ram_storage: RAM_STORAGE_OPTIONS };
-
 // Columns that need type="number"
 const NUMBER_COLS = new Set(['tax_percent']);
 
@@ -32,17 +31,31 @@ function FieldInput({ col, value, onChange, placeholder, className = 'form__inpu
   return <input className={className} placeholder={placeholder || columnLabel(col)} value={value} onChange={onChange} maxLength={200} />;
 }
 
+const TRACKING_LABELS = {
+  quantity: 'Quantity',
+  serial: 'Serial / IMEI',
+  batch: 'Batch / Expiry',
+};
+
+function TrackingBadge({ type }) {
+  const colors = { quantity: 'badge--draft', serial: 'badge--sent', batch: 'badge--paid' };
+  return <span className={`badge ${colors[type] || ''}`} style={{ fontSize: '0.7rem' }}>{type}</span>;
+}
+
 export default function Products() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const config = useBusinessConfig();
-  const productForm = config.productForm; // dynamic: { col_name: true/false, ... }
+  const productForm = config.productForm;
+  const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
 
-  // Determine which extra columns are enabled (truthy keys in productForm)
-  const extraCols = useMemo(() =>
-    Object.keys(productForm).filter((k) => productForm[k]),
-    [productForm]
-  );
+  // Fields shown on form/table depend on default tracking type from Settings
+  const extraCols = useMemo(() => {
+    const enabled = Object.keys(productForm).filter((k) => productForm[k]);
+    const allowed = PRODUCT_COLS_BY_TRACKING_TYPE[defaultTrackingType];
+    if (!allowed) return enabled; // quantity: show all enabled
+    return enabled.filter((k) => allowed.includes(k));
+  }, [productForm, defaultTrackingType]);
 
   const [list, setList] = useState([]);
   const [total, setTotal] = useState(0);
@@ -50,25 +63,29 @@ export default function Products() {
   const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
-  // Dynamic field values for add form: { col_name: value }
   const [addFields, setAddFields] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [trackingFilter, setTrackingFilter] = useState(''); // '' = all, 'quantity' | 'serial' | 'batch'
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
   const [editPrice, setEditPrice] = useState('');
-  // Dynamic field values for edit form
   const [editFields, setEditFields] = useState({});
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  // Serial/Batch viewer
+  const [viewProduct, setViewProduct] = useState(null); // product to view serials/batches
+  const [viewData, setViewData] = useState([]);
+  const [viewLoading, setViewLoading] = useState(false);
   const addFormRef = useRef(null);
 
   const fetchList = useCallback(() => {
     if (!token) return;
     const params = new URLSearchParams();
     if (search) params.set('q', search);
+    if (trackingFilter) params.set('tracking_type', trackingFilter);
     params.set('limit', String(PAGE_SIZE));
     params.set('offset', String(page * PAGE_SIZE));
     return api.get(token, `/api/products?${params.toString()}`)
@@ -79,13 +96,13 @@ export default function Products() {
         setTotal(tot);
       })
       .catch((e) => setError(e.message));
-  }, [token, search, page]);
+  }, [token, search, trackingFilter, page]);
 
   useEffect(() => {
     if (!token) return;
     setLoading(true);
     fetchList().finally(() => setLoading(false));
-  }, [token, search, page, fetchList]);
+  }, [token, search, trackingFilter, page, fetchList]);
 
   function setAddField(col, val) {
     setAddFields((prev) => ({ ...prev, [col]: val }));
@@ -99,7 +116,7 @@ export default function Products() {
     setError('');
     setSubmitting(true);
     try {
-      const payload = { name: name.trim(), price: parseFloat(price, 10) || 0 };
+      const payload = { name: name.trim(), price: parseFloat(price, 10) || 0, tracking_type: defaultTrackingType };
       for (const col of extraCols) {
         const v = (addFields[col] ?? '').toString().trim();
         if (col === 'tax_percent') {
@@ -188,6 +205,25 @@ export default function Products() {
     }
   }
 
+  async function openView(p) {
+    setViewProduct(p);
+    setViewLoading(true);
+    setViewData([]);
+    try {
+      if (p.tracking_type === 'serial') {
+        const data = await api.get(token, `/api/products/${p.id}/serials`);
+        setViewData(data || []);
+      } else if (p.tracking_type === 'batch') {
+        const data = await api.get(token, `/api/products/${p.id}/batches`);
+        setViewData(data || []);
+      }
+    } catch {
+      setViewData([]);
+    } finally {
+      setViewLoading(false);
+    }
+  }
+
   function formatCellValue(p, col) {
     const v = p[col];
     if (v == null || v === '') return '—';
@@ -195,10 +231,35 @@ export default function Products() {
     return String(v);
   }
 
+  function stockDisplay(p) {
+    const stock = Number(p.stock) || 0;
+    const unit = (p.unit || 'pcs').toString().trim();
+    if (!unit) return String(stock);
+    return `${stock} · ${unit}`;
+  }
+
+  const currentTypeLabel = TRACKING_LABELS[defaultTrackingType] || 'Quantity';
+
   return (
     <div className="page">
       <h1 className="page__title">Products</h1>
-      <div className="page__toolbar">
+      <p className="page__subtitle" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <span className="page__muted">Default product type:</span>
+        <TrackingBadge type={defaultTrackingType} />
+        <span className="page__muted" style={{ fontSize: '0.875rem' }}>— new products use this. Change in Settings.</span>
+      </p>
+      <div className="page__toolbar" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+        <select
+          className="form__input page__filter"
+          value={trackingFilter}
+          onChange={(e) => { setTrackingFilter(e.target.value); setPage(0); }}
+          aria-label="Filter by type"
+        >
+          <option value="">All types</option>
+          <option value="quantity">Quantity</option>
+          <option value="serial">Serial / IMEI</option>
+          <option value="batch">Batch / Expiry</option>
+        </select>
         <input
           type="search"
           placeholder="Search products…"
@@ -209,7 +270,10 @@ export default function Products() {
       </div>
       {error && <div className="page__error">{error}</div>}
       <section className="card page__section" ref={addFormRef}>
-        <h2 className="card__heading">Add product</h2>
+        <h2 className="card__heading" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          Add product
+          <span className="badge badge--draft" style={{ fontSize: '0.75rem', fontWeight: 'normal' }}>({currentTypeLabel})</span>
+        </h2>
         <form onSubmit={handleAdd} className="form form--grid" style={{ gap: '0.5rem', alignItems: 'end' }}>
           <input
             className="form__input"
@@ -240,9 +304,22 @@ export default function Products() {
             Add
           </button>
         </form>
+        {defaultTrackingType === 'serial' && (
+          <p className="page__muted" style={{ fontSize: '0.8125rem', marginTop: '0.5rem' }}>
+            Product type is Serial (from Settings). Serial numbers are entered when recording purchases.
+          </p>
+        )}
+        {defaultTrackingType === 'batch' && (
+          <p className="page__muted" style={{ fontSize: '0.8125rem', marginTop: '0.5rem' }}>
+            Product type is Batch (from Settings). Batch and expiry are entered when recording purchases.
+          </p>
+        )}
       </section>
       <section className="card page__section">
-        <h2 className="card__heading">All products</h2>
+        <h2 className="card__heading">
+          All products
+          {trackingFilter ? <span className="page__muted" style={{ fontWeight: 'normal', fontSize: '0.875rem' }}> — {TRACKING_LABELS[trackingFilter] || trackingFilter}</span> : null}
+        </h2>
         {loading ? (
           <ListSkeleton rows={6} columns={4} />
         ) : list.length === 0 ? (
@@ -259,6 +336,8 @@ export default function Products() {
                 <tr>
                   <th>Name</th>
                   <th>Price</th>
+                  <th>Tracking</th>
+                  <th>Stock</th>
                   {extraCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
                   <th></th>
                 </tr>
@@ -268,6 +347,20 @@ export default function Products() {
                   <tr key={p.id}>
                     <td>{p.name}</td>
                     <td>{formatMoney(p.price, tenant)}</td>
+                    <td><TrackingBadge type={p.tracking_type || 'quantity'} /></td>
+                    <td>
+                      {stockDisplay(p)}
+                      {(p.tracking_type === 'serial' || p.tracking_type === 'batch') && Number(p.stock) > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--sm"
+                          style={{ marginLeft: '0.25rem', fontSize: '0.75rem', padding: '0.125rem 0.375rem' }}
+                          onClick={() => openView(p)}
+                        >
+                          View
+                        </button>
+                      )}
+                    </td>
                     {extraCols.map((col) => <td key={col}>{formatCellValue(p, col)}</td>)}
                     <td>
                       <span className="table-actions">
@@ -306,6 +399,7 @@ export default function Products() {
         onCancel={() => setProductToDelete(null)}
       />
 
+      {/* Edit modal */}
       {editing && (
         <div className="modal-backdrop" onClick={closeEdit}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -313,44 +407,92 @@ export default function Products() {
             <form onSubmit={handleEditSubmit}>
               <label className="form__label">
                 <span>Name</span>
-                <input
-                  className="form__input"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  required
-                />
+                <input className="form__input" value={editName} onChange={(e) => setEditName(e.target.value)} required />
               </label>
               <label className="form__label">
                 <span>Price</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className="form__input"
-                  value={editPrice}
-                  onChange={(e) => setEditPrice(e.target.value)}
-                  required
-                />
+                <input type="number" step="0.01" min="0" className="form__input" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} required />
               </label>
+              <div className="form__label">
+                <span>Type</span>
+                <span className="form__readonly"><TrackingBadge type={editing.tracking_type || 'quantity'} /> (set in Settings)</span>
+              </div>
               {extraCols.map((col) => (
                 <label key={col} className="form__label">
                   <span>{columnLabel(col)}</span>
-                  <FieldInput
-                    col={col}
-                    value={editFields[col] ?? ''}
-                    onChange={(e) => setEditField(col, e.target.value)}
-                  />
+                  <FieldInput col={col} value={editFields[col] ?? ''} onChange={(e) => setEditField(col, e.target.value)} />
                 </label>
               ))}
               <div className="modal__actions">
-                <button type="button" className="btn btn--secondary" onClick={closeEdit}>
-                  Cancel
-                </button>
+                <button type="button" className="btn btn--secondary" onClick={closeEdit}>Cancel</button>
                 <button type="submit" className="btn btn--primary" disabled={editSubmitting}>
                   {editSubmitting ? 'Saving…' : 'Save'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Serial / Batch viewer modal */}
+      {viewProduct && (
+        <div className="modal-backdrop" onClick={() => setViewProduct(null)}>
+          <div className="modal" style={{ maxWidth: '32rem' }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal__title">
+              {viewProduct.tracking_type === 'serial' ? 'Serial Numbers' : 'Batches'} — {viewProduct.name}
+            </h2>
+            {viewLoading ? (
+              <p className="page__muted">Loading…</p>
+            ) : viewData.length === 0 ? (
+              <p className="page__muted">No {viewProduct.tracking_type === 'serial' ? 'serials' : 'batches'} found.</p>
+            ) : viewProduct.tracking_type === 'serial' ? (
+              <div className="table-wrap" style={{ maxHeight: '20rem', overflowY: 'auto' }}>
+                <table className="table" style={{ fontSize: '0.8125rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Serial Number</th>
+                      <th>Status</th>
+                      <th>Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewData.map((s) => (
+                      <tr key={s.id}>
+                        <td style={{ fontFamily: 'monospace' }}>{s.serial_number}</td>
+                        <td><span className={`badge badge--${s.status === 'available' ? 'sent' : 'draft'}`}>{s.status}</span></td>
+                        <td>{s.cost_price != null ? formatMoney(s.cost_price, tenant) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="table-wrap" style={{ maxHeight: '20rem', overflowY: 'auto' }}>
+                <table className="table" style={{ fontSize: '0.8125rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Batch #</th>
+                      <th>Expiry</th>
+                      <th>Qty</th>
+                      <th>Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewData.map((b) => (
+                      <tr key={b.id}>
+                        <td>{b.batch_number}</td>
+                        <td>{b.expiry_date || '—'}</td>
+                        <td>{Number(b.quantity)}</td>
+                        <td>{b.cost_price != null ? formatMoney(b.cost_price, tenant) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="modal__actions" style={{ marginTop: '1rem' }}>
+              <button type="button" className="btn btn--secondary" onClick={() => setViewProduct(null)}>Close</button>
+            </div>
           </div>
         </div>
       )}

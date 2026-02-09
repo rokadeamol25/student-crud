@@ -15,6 +15,7 @@ const STATUS_OPTIONS = [
   { value: 'paid', label: 'Paid' },
 ];
 const PAGE_SIZE = 20;
+const PAYMENT_METHODS = ['cash', 'upi', 'bank_transfer'];
 
 function paymentStatus(inv) {
   const total = Number(inv?.total) ?? 0;
@@ -38,6 +39,12 @@ export default function Invoices() {
   const [exporting, setExporting] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  // Quick payment modal
+  const [payInvoice, setPayInvoice] = useState(null);
+  const [payForm, setPayForm] = useState({ amount: '', method: 'cash', reference: '', paid_at: '' });
+  const [paySubmitting, setPaySubmitting] = useState(false);
+  // Status update
+  const [statusUpdating, setStatusUpdating] = useState(null);
   const navigate = useNavigate();
 
   const fetchList = useCallback(() => {
@@ -91,6 +98,120 @@ export default function Invoices() {
     } finally {
       setExporting(false);
     }
+  }
+
+  // Quick status update
+  async function handleStatusUpdate(inv, newStatus) {
+    setStatusUpdating(inv.id);
+    try {
+      await api.patch(token, `/api/invoices/${inv.id}`, { status: newStatus });
+      showToast(newStatus === 'sent' ? 'Marked as sent' : 'Marked as paid', 'success');
+      await fetchList();
+    } catch (e) {
+      showToast(e.message || 'Failed to update', 'error');
+    } finally {
+      setStatusUpdating(null);
+    }
+  }
+
+  // Quick payment
+  function openPayment(inv) {
+    const pay = paymentStatus(inv);
+    setPayInvoice(inv);
+    setPayForm({
+      amount: pay.balance > 0 ? String(pay.balance) : '',
+      method: 'cash',
+      reference: '',
+      paid_at: new Date().toISOString().slice(0, 10),
+    });
+  }
+
+  async function handleRecordPayment(e) {
+    e.preventDefault();
+    if (!payInvoice || !token) return;
+    const amount = parseFloat(payForm.amount, 10);
+    if (Number.isNaN(amount) || amount <= 0) {
+      showToast('Enter a valid amount', 'error');
+      return;
+    }
+    setPaySubmitting(true);
+    try {
+      await api.post(token, `/api/invoices/${payInvoice.id}/payments`, {
+        amount: Math.round(amount * 100) / 100,
+        payment_method: payForm.method,
+        reference: (payForm.reference || '').trim() || undefined,
+        paid_at: payForm.paid_at || undefined,
+      });
+      showToast('Payment recorded', 'success');
+      setPayInvoice(null);
+      await fetchList();
+    } catch (e) {
+      showToast(e.message || 'Failed to record payment', 'error');
+    } finally {
+      setPaySubmitting(false);
+    }
+  }
+
+  function renderActions(inv) {
+    const pay = paymentStatus(inv);
+    const isUpdating = statusUpdating === inv.id;
+    const canEdit = inv.status !== 'paid';
+    return (
+      <span className="table-actions" style={{ flexWrap: 'wrap' }}>
+        {canEdit && (
+          <>
+            <Link to={`/invoices/${inv.id}/edit`} className="btn btn--ghost btn--sm">Edit</Link>
+            <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => openDelete(inv)}>Delete</button>
+          </>
+        )}
+        {inv.status === 'draft' && (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleStatusUpdate(inv, 'sent')} disabled={isUpdating}>
+            Send
+          </button>
+        )}
+        {inv.status === 'sent' && pay.balance > 0 && (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => openPayment(inv)}>
+            Record payment
+          </button>
+        )}
+        {(inv.status === 'draft' || inv.status === 'sent') && (
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleStatusUpdate(inv, 'paid')} disabled={isUpdating}>
+            Mark paid
+          </button>
+        )}
+        <Link to={`/invoices/${inv.id}/print`} className="btn btn--ghost btn--sm">View</Link>
+      </span>
+    );
+  }
+
+  function renderCardActions(inv) {
+    const pay = paymentStatus(inv);
+    const isUpdating = statusUpdating === inv.id;
+    const canEdit = inv.status !== 'paid';
+    return (
+      <div className="invoice-card__actions" style={{ flexWrap: 'wrap' }}>
+        {canEdit && (
+          <>
+            <Link to={`/invoices/${inv.id}/edit`} className="btn btn--secondary invoice-card__action">Edit</Link>
+            <button type="button" className="btn btn--ghost btn--danger invoice-card__action" onClick={() => openDelete(inv)}>Delete</button>
+          </>
+        )}
+        {inv.status === 'draft' && (
+          <button type="button" className="btn btn--secondary invoice-card__action" onClick={() => handleStatusUpdate(inv, 'sent')} disabled={isUpdating}>Send</button>
+        )}
+        {inv.status === 'sent' && pay.balance > 0 && (
+          <button type="button" className="btn btn--secondary invoice-card__action" onClick={() => openPayment(inv)}>
+            Record payment
+          </button>
+        )}
+        {(inv.status === 'draft' || inv.status === 'sent') && (
+          <button type="button" className="btn btn--secondary invoice-card__action" onClick={() => handleStatusUpdate(inv, 'paid')} disabled={isUpdating}>
+            Mark paid
+          </button>
+        )}
+        <Link to={`/invoices/${inv.id}/print`} className="btn btn--primary invoice-card__action">View</Link>
+      </div>
+    );
   }
 
   return (
@@ -157,21 +278,7 @@ export default function Invoices() {
                     <span className="invoice-card__label">Total</span>
                     <span className="invoice-card__value">{formatMoney(inv.total, tenant)}</span>
                   </div>
-                  <div className="invoice-card__actions">
-                    {inv.status === 'draft' && (
-                      <>
-                        <Link to={`/invoices/${inv.id}/edit`} className="btn btn--secondary invoice-card__action">
-                          Edit
-                        </Link>
-                        <button type="button" className="btn btn--ghost btn--danger invoice-card__action" onClick={() => openDelete(inv)}>
-                          Delete
-                        </button>
-                      </>
-                    )}
-                    <Link to={`/invoices/${inv.id}/print`} className="btn btn--primary invoice-card__action">
-                      View / Print
-                    </Link>
-                  </div>
+                  {renderCardActions(inv)}
                 </div>
               ))}
             </div>
@@ -204,17 +311,7 @@ export default function Invoices() {
                         )}
                       </td>
                       <td>{formatMoney(inv.total, tenant)}</td>
-                      <td>
-                        <span className="table-actions">
-                          {inv.status === 'draft' && (
-                            <>
-                              <Link to={`/invoices/${inv.id}/edit`} className="btn btn--ghost btn--sm">Edit</Link>
-                              <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => openDelete(inv)}>Delete</button>
-                            </>
-                          )}
-                          <Link to={`/invoices/${inv.id}/print`} className="btn btn--ghost btn--sm">View / Print</Link>
-                        </span>
-                      </td>
+                      <td>{renderActions(inv)}</td>
                     </tr>
                   ); })}
                 </tbody>
@@ -239,8 +336,8 @@ export default function Invoices() {
 
       <ConfirmDialog
         open={!!invoiceToDelete}
-        title="Delete draft invoice"
-        message={invoiceToDelete ? `Delete draft invoice ${invoiceToDelete.invoice_number}? This cannot be undone.` : ''}
+        title="Delete invoice"
+        message={invoiceToDelete ? `Delete invoice ${invoiceToDelete.invoice_number}? This cannot be undone.` : ''}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         danger
@@ -248,6 +345,54 @@ export default function Invoices() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setInvoiceToDelete(null)}
       />
+
+      {/* Quick payment modal */}
+      {payInvoice && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPayInvoice(null)}>
+          <div className="modal" style={{ maxWidth: '22rem', margin: 'auto', borderRadius: 'var(--radius)' }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal__title">Record payment — {payInvoice.invoice_number}</h2>
+            <p className="page__muted" style={{ marginBottom: '0.75rem', fontSize: '0.875rem' }}>
+              Balance due: <strong>{formatMoney(paymentStatus(payInvoice).balance, tenant)}</strong>
+            </p>
+            <form onSubmit={handleRecordPayment}>
+              <div className="form" style={{ marginBottom: '1rem' }}>
+                <label className="form__label">
+                  <span>Amount</span>
+                  <input
+                    type="number" min="0" step="0.01"
+                    className="form__input"
+                    value={payForm.amount}
+                    onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))}
+                    required
+                  />
+                </label>
+                <label className="form__label">
+                  <span>Method</span>
+                  <select className="form__input" value={payForm.method} onChange={(e) => setPayForm((f) => ({ ...f, method: e.target.value }))}>
+                    {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m.replace('_', ' ')}</option>)}
+                  </select>
+                </label>
+                <label className="form__label">
+                  <span>Date</span>
+                  <input type="date" className="form__input" value={payForm.paid_at} onChange={(e) => setPayForm((f) => ({ ...f, paid_at: e.target.value }))} />
+                </label>
+                <label className="form__label">
+                  <span>Reference (optional)</span>
+                  <input type="text" className="form__input" placeholder="UPI ref, cheque no." value={payForm.reference} onChange={(e) => setPayForm((f) => ({ ...f, reference: e.target.value }))} />
+                </label>
+              </div>
+              <div className="modal__actions">
+                <button type="submit" className="btn btn--primary" disabled={paySubmitting}>
+                  {paySubmitting ? 'Saving…' : 'Record payment'}
+                </button>
+                <button type="button" className="btn btn--ghost" onClick={() => setPayInvoice(null)} disabled={paySubmitting}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

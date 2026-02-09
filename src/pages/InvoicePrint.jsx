@@ -1,31 +1,36 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useBusinessConfig } from '../hooks/useBusinessConfig';
-import { columnLabel } from '../config/businessTypes';
+import { columnLabel, INVOICE_COLS_BY_TRACKING_TYPE } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
-import ConfirmDialog from '../components/ConfirmDialog';
 import html2pdf from 'html2pdf.js';
 
 /**
- * Print-friendly invoice view. User can Print → Save as PDF (MVP).
- * Tenant isolation: invoice is loaded via API; backend enforces tenant_id.
+ * Clean view / print page for an invoice.
+ * Status changes & deletion are handled on the list page.
+ * This page focuses on: View, Print, PDF download, Payments.
  */
 export default function InvoicePrint() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const { invoiceLineItems } = useBusinessConfig();
-  const extraInvCols = Object.keys(invoiceLineItems).filter((k) => invoiceLineItems[k]);
+  const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
+  const extraInvCols = (() => {
+    const allowed = INVOICE_COLS_BY_TRACKING_TYPE[defaultTrackingType];
+    return Object.keys(invoiceLineItems).filter((k) => {
+      if (!invoiceLineItems[k]) return false;
+      if (k === 'imei') return false;
+      if (!allowed) return true;
+      return allowed.includes(k);
+    });
+  })();
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [statusUpdating, setStatusUpdating] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmAction, setConfirmAction] = useState(null); // { type: 'delete'|'sent'|'paid' }
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const printAreaRef = useRef(null);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -45,42 +50,6 @@ export default function InvoicePrint() {
     setLoading(true);
     fetchInvoice().finally(() => setLoading(false));
   }, [token, id, fetchInvoice]);
-
-  function openStatusConfirm(newStatus) {
-    setConfirmAction(newStatus === 'sent' ? 'sent' : 'paid');
-  }
-
-  async function handleStatusUpdate(newStatus) {
-    setConfirmAction(null);
-    setStatusUpdating(true);
-    try {
-      await api.patch(token, `/api/invoices/${id}`, { status: newStatus });
-      await fetchInvoice();
-      showToast(newStatus === 'sent' ? 'Marked as sent' : 'Marked as paid', 'success');
-    } catch (e) {
-      showToast(e.message || 'Failed to update status', 'error');
-    } finally {
-      setStatusUpdating(false);
-    }
-  }
-
-  function openDeleteConfirm() {
-    setConfirmAction('delete');
-  }
-
-  async function handleDelete() {
-    setConfirmAction(null);
-    setDeleting(true);
-    try {
-      await api.del(token, `/api/invoices/${id}`);
-      showToast('Draft invoice deleted', 'success');
-      navigate('/invoices');
-    } catch (e) {
-      showToast(e.message || 'Failed to delete', 'error');
-    } finally {
-      setDeleting(false);
-    }
-  }
 
   // Apply tenant page size for print/PDF (A4 or Letter)
   useEffect(() => {
@@ -104,16 +73,42 @@ export default function InvoicePrint() {
     setPdfGenerating(true);
     try {
       const pageSize = tenant?.invoice_page_size === 'Letter' ? 'letter' : 'a4';
+
+      // Temporarily expand the table wrapper so html2canvas captures the full table
+      const tableWrap = el.querySelector('.invoice-print__table-wrap');
+      if (tableWrap) {
+        tableWrap.style.overflow = 'visible';
+        tableWrap.style.minWidth = '0';
+      }
+      const table = el.querySelector('.invoice-print__table');
+      if (table) table.style.minWidth = '0';
+
+      // Force the print area to a fixed width so the table compresses to fit portrait A4
+      const origWidth = el.style.width;
+      const origMaxWidth = el.style.maxWidth;
+      el.style.width = '700px';
+      el.style.maxWidth = '700px';
+
       await html2pdf()
         .set({
-          margin: 10,
+          margin: [8, 5, 8, 5],
           filename: `invoice-${(invoice.invoice_number || 'invoice').replace(/\s+/g, '-')}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true },
+          html2canvas: { scale: 2, useCORS: true, scrollX: 0, scrollY: 0, windowWidth: 700 },
           jsPDF: { unit: 'mm', format: pageSize, orientation: 'portrait' },
         })
         .from(el)
         .save();
+
+      // Restore styles
+      el.style.width = origWidth;
+      el.style.maxWidth = origMaxWidth;
+      if (tableWrap) {
+        tableWrap.style.overflow = '';
+        tableWrap.style.minWidth = '';
+      }
+      if (table) table.style.minWidth = '';
+
       showToast('PDF downloaded', 'success');
     } catch (e) {
       showToast(e?.message || 'Failed to generate PDF', 'error');
@@ -190,44 +185,33 @@ export default function InvoicePrint() {
 
   const customer = invoice.customer || {};
   const items = invoice.invoice_items || [];
+  const hasSerial = items.some((row) => row.serials && row.serials.length > 0);
 
   return (
     <div className="invoice-print-wrap">
       <div className="invoice-print-actions no-print">
         <Link to="/invoices" className="btn btn--secondary">← Invoices</Link>
-        <div className="invoice-print__status-actions">
-          <span className="invoice-print__status-label">Status: <strong>{invoice.status}</strong></span>
-          {invoice.status === 'draft' && (
-            <>
-              <Link to={`/invoices/${id}/edit`} className="btn btn--secondary">Edit</Link>
-              <button type="button" className="btn btn--ghost btn--danger" onClick={openDeleteConfirm} disabled={deleting}>
-                {deleting ? 'Deleting…' : 'Delete draft'}
-              </button>
-            </>
+        <span className="invoice-print__status-label" style={{ marginLeft: '0.5rem' }}>
+          Status: <span className={`badge badge--${invoice.status}`}>{invoice.status}</span>
+        </span>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+          {invoice.status !== 'paid' && (
+            <Link to={`/invoices/${id}/edit`} className="btn btn--secondary">Edit</Link>
           )}
-          {invoice.status === 'draft' && (
-            <button type="button" className="btn btn--secondary" onClick={() => openStatusConfirm('sent')} disabled={statusUpdating}>
-              {statusUpdating ? 'Updating…' : 'Mark as Sent'}
-            </button>
-          )}
-          {(invoice.status === 'draft' || invoice.status === 'sent') && (
-            <button type="button" className="btn btn--primary" onClick={() => openStatusConfirm('paid')} disabled={statusUpdating}>
-              {statusUpdating ? 'Updating…' : 'Mark as Paid'}
-            </button>
-          )}
+          <button type="button" className="btn btn--primary" onClick={() => window.print()}>
+            Print
+          </button>
+          <button type="button" className="btn btn--secondary" onClick={handleDownloadPdf} disabled={pdfGenerating}>
+            {pdfGenerating ? 'Generating…' : 'Download PDF'}
+          </button>
         </div>
-        <button type="button" className="btn btn--primary" onClick={() => window.print()}>
-          Print / Save as PDF
-        </button>
-        <button type="button" className="btn btn--secondary" onClick={handleDownloadPdf} disabled={pdfGenerating}>
-          {pdfGenerating ? 'Generating…' : 'Download PDF'}
-        </button>
+        {/* Payments section */}
         <div className="invoice-print__payments no-print" style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', width: '100%' }}>
           <h3 className="card__subheading" style={{ marginBottom: '0.5rem' }}>Payments</h3>
           {(() => {
             const amtPaid = Number(invoice?.amount_paid) ?? 0;
-            const total = Number(invoice?.total) ?? 0;
-            const balance = Number(invoice?.balance) ?? (total - amtPaid);
+            const invoiceTotal = Number(invoice?.total) ?? 0;
+            const balance = Number(invoice?.balance) ?? (invoiceTotal - amtPaid);
             const payments = invoice?.payments ?? [];
             return (
               <>
@@ -309,30 +293,56 @@ export default function InvoicePrint() {
             {customer.address && <p className="invoice-print__address">{customer.address}</p>}
           </div>
         </div>
-        <table className="invoice-print__table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Description</th>
-              {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
-              <th>Qty</th>
-              <th>Unit price</th>
-              <th>Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((row, i) => (
-              <tr key={row.id || i}>
-                <td>{i + 1}</td>
-                <td>{row.description}</td>
-                {extraInvCols.map((col) => <td key={col}>{row[col] || '—'}</td>)}
-                <td>{Number(row.quantity)}</td>
-                <td>{formatMoney(row.unit_price, tenant)}</td>
-                <td>{formatMoney(row.amount, tenant)}</td>
+        <div className="invoice-print__table-wrap">
+          <table className="invoice-print__table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Description</th>
+                <th>Type</th>
+                {hasSerial && <th>Serial / IMEI</th>}
+                {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
+                <th>Qty</th>
+                <th>Unit price</th>
+                <th>Amount</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.map((row, i) => {
+                const trackingType = row.product?.tracking_type || 'quantity';
+                const serials = row.serials || [];
+                return (
+                  <tr key={row.id || i}>
+                    <td>{i + 1}</td>
+                    <td>{row.description}</td>
+                    <td>
+                      <span className={`badge badge--${trackingType === 'serial' ? 'sent' : trackingType === 'batch' ? 'paid' : 'draft'}`} style={{ fontSize: '0.7rem' }}>
+                        {trackingType}
+                      </span>
+                    </td>
+                    {hasSerial && (
+                      <td>
+                        {serials.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
+                            {serials.map((s, j) => (
+                              <span key={s.id || j}>{s.serial_number}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    )}
+                    {extraInvCols.map((col) => <td key={col}>{row[col] || '—'}</td>)}
+                    <td>{Number(row.quantity)}</td>
+                    <td>{formatMoney(row.unit_price, tenant)}</td>
+                    <td>{formatMoney(row.amount, tenant)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
         <div className="invoice-print__totals">
           {invoice.tax_percent != null && Number(invoice.tax_percent) > 0 && (
             <>
@@ -350,56 +360,12 @@ export default function InvoicePrint() {
             <span>Total</span>
             <span>{formatMoney(invoice.total, tenant)}</span>
           </div>
-          {(() => {
-            const costTotal = (items || []).reduce((s, row) => s + (Number(row.cost_amount) || 0), 0);
-            const grossProfit = Number(invoice.total) - costTotal;
-            const profitPercent = Number(invoice.total) > 0 ? (grossProfit / Number(invoice.total) * 100) : 0;
-            return (
-              <div className="invoice-print__profit" style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', fontSize: '0.9em', color: 'var(--muted)' }}>
-                <div className="invoice-print__total"><span>Cost total</span><span>{formatMoney(costTotal, tenant)}</span></div>
-                <div className="invoice-print__total"><span>Gross profit</span><span>{formatMoney(grossProfit, tenant)}</span></div>
-                <div className="invoice-print__total"><span>Profit %</span><span>{profitPercent.toFixed(1)}%</span></div>
-              </div>
-            );
-          })()}
         </div>
         <p className="invoice-print__footer">Thank you for your business.</p>
         {tenant?.invoice_footer_note && (
           <div className="invoice-print__footer-note">{tenant.invoice_footer_note}</div>
         )}
       </div>
-
-      <ConfirmDialog
-        open={confirmAction === 'delete'}
-        title="Delete draft invoice"
-        message="Delete this draft invoice? This cannot be undone."
-        confirmLabel="Delete"
-        cancelLabel="Cancel"
-        danger
-        loading={deleting}
-        onConfirm={handleDelete}
-        onCancel={() => setConfirmAction(null)}
-      />
-      <ConfirmDialog
-        open={confirmAction === 'sent'}
-        title="Mark as sent"
-        message={invoice ? `Mark invoice ${invoice.invoice_number} as sent?` : ''}
-        confirmLabel="Mark as Sent"
-        cancelLabel="Cancel"
-        loading={statusUpdating}
-        onConfirm={() => handleStatusUpdate('sent')}
-        onCancel={() => setConfirmAction(null)}
-      />
-      <ConfirmDialog
-        open={confirmAction === 'paid'}
-        title="Mark as paid"
-        message={invoice ? `Mark invoice ${invoice.invoice_number} as paid?` : ''}
-        confirmLabel="Mark as Paid"
-        cancelLabel="Cancel"
-        loading={statusUpdating}
-        onConfirm={() => handleStatusUpdate('paid')}
-        onCancel={() => setConfirmAction(null)}
-      />
 
       {paymentModalOpen && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="record-payment-title" onClick={() => setPaymentModalOpen(false)}>

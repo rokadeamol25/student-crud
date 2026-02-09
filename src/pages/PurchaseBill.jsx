@@ -8,6 +8,8 @@ import ListSkeleton from '../components/ListSkeleton';
 
 const emptyItem = () => ({ product_id: '', quantity: 1, purchase_price: 0 });
 
+const TRACKING_LABELS = { quantity: 'Qty', serial: 'Serial', batch: 'Batch' };
+
 function itemFromRow(row) {
   return {
     product_id: row.product_id || '',
@@ -16,9 +18,16 @@ function itemFromRow(row) {
   };
 }
 
+function TrackingBadge({ type }) {
+  const t = type || 'quantity';
+  const colors = { quantity: 'badge--draft', serial: 'badge--sent', batch: 'badge--paid' };
+  return <span className={`badge ${colors[t] || ''}`} style={{ fontSize: '0.7rem' }}>{TRACKING_LABELS[t]}</span>;
+}
+
 export default function PurchaseBill() {
   const { id } = useParams();
   const { token, tenant } = useAuth();
+  const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [bill, setBill] = useState(null);
@@ -26,11 +35,15 @@ export default function PurchaseBill() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [editForm, setEditForm] = useState(null); // when draft: { supplierId, billNumber, billDate, items }
+  const [editForm, setEditForm] = useState(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [recordConfirm, setRecordConfirm] = useState(false);
   const [recording, setRecording] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Serial/batch entry for recording
+  const [recordModal, setRecordModal] = useState(false);
+  const [serialInputs, setSerialInputs] = useState({}); // product_id -> string (newline-separated)
+  const [batchInputs, setBatchInputs] = useState({}); // product_id -> { batch_number, expiry_date }
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
@@ -140,11 +153,56 @@ export default function PurchaseBill() {
     }
   }
 
+  function needsExtraInput() {
+    if (!editForm) return false;
+    return editForm.items.some((it) => {
+      const prod = products.find((p) => p.id === it.product_id);
+      return prod && (prod.tracking_type === 'serial' || prod.tracking_type === 'batch');
+    });
+  }
+
+  function openRecordFlow() {
+    if (needsExtraInput()) {
+      // Prepare serial/batch input state
+      const si = {};
+      const bi = {};
+      for (const it of (editForm?.items || [])) {
+        const prod = products.find((p) => p.id === it.product_id);
+        if (!prod) continue;
+        if (prod.tracking_type === 'serial') {
+          si[it.product_id] = si[it.product_id] || '';
+        }
+        if (prod.tracking_type === 'batch') {
+          bi[it.product_id] = bi[it.product_id] || { batch_number: '', expiry_date: '' };
+        }
+      }
+      setSerialInputs(si);
+      setBatchInputs(bi);
+      setRecordModal(true);
+    } else {
+      setRecordConfirm(true);
+    }
+  }
+
   async function handleRecord() {
     setRecordConfirm(false);
+    setRecordModal(false);
     setRecording(true);
     try {
-      const updated = await api.post(token, `/api/purchase-bills/${id}/record`);
+      // Build serials map: product_id -> string[]
+      const serials = {};
+      for (const [pid, text] of Object.entries(serialInputs)) {
+        const lines = text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        if (lines.length > 0) serials[pid] = lines;
+      }
+      // Build batches map: product_id -> { batch_number, expiry_date }
+      const batches = {};
+      for (const [pid, info] of Object.entries(batchInputs)) {
+        if (info.batch_number?.trim()) {
+          batches[pid] = { batch_number: info.batch_number.trim(), expiry_date: info.expiry_date || null };
+        }
+      }
+      const updated = await api.post(token, `/api/purchase-bills/${id}/record`, { serials, batches });
       setBill(updated);
       setEditForm(null);
       showToast('Purchase bill recorded; stock updated', 'success');
@@ -241,21 +299,32 @@ export default function PurchaseBill() {
   const isDraft = bill.status === 'draft';
   const balance = Number(bill.balance) ?? (Number(bill.total) - Number(bill.amount_paid ?? 0));
   const payments = bill.payments || [];
+  const draftItemsWithType = (editForm?.items || []).map((it) => ({ ...it, product: products.find((p) => p.id === it.product_id) }));
+  const hasSerialOrBatch = draftItemsWithType.some((it) => it.product?.tracking_type === 'serial' || it.product?.tracking_type === 'batch');
 
   return (
     <div className="page">
-      <div className="page__toolbar" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <div className="page__toolbar" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <Link to="/purchase-bills" className="btn btn--ghost btn--sm">← Purchase bills</Link>
         {bill.supplier?.id && (
           <Link to={`/suppliers/${bill.supplier.id}/ledger`} className="btn btn--ghost btn--sm">Supplier ledger</Link>
         )}
+        <Link to={`/purchase-bills/${id}/print`} className="btn btn--secondary btn--sm">Print / Download PDF</Link>
       </div>
       <h1 className="page__title">Purchase bill — {bill.bill_number}</h1>
       <p className="page__muted">Supplier: {bill.supplier?.name ?? '—'} · Date: {bill.bill_date} · Status: {bill.status}</p>
+      <p className="page__muted" style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+        Product type from Settings: <TrackingBadge type={defaultTrackingType} /> — Serial/Batch lines need details when you Record.
+      </p>
 
       {isDraft && editForm && (
         <section className="card page__section">
           <h2 className="card__heading">Edit draft</h2>
+          {hasSerialOrBatch && (
+            <p className="page__muted" style={{ marginBottom: '0.75rem', fontSize: '0.875rem' }}>
+              Some products are Serial or Batch — you will enter serial numbers or batch/expiry when you click Record bill.
+            </p>
+          )}
           <form onSubmit={handleEditSubmit}>
             <div className="form form--grid">
               <label className="form__label">
@@ -298,6 +367,7 @@ export default function PurchaseBill() {
                 <thead>
                   <tr>
                     <th>Product</th>
+                    <th>Type</th>
                     <th>Quantity</th>
                     <th>Purchase price</th>
                     <th>Amount</th>
@@ -305,7 +375,9 @@ export default function PurchaseBill() {
                   </tr>
                 </thead>
                 <tbody>
-                  {editForm.items.map((it, i) => (
+                  {editForm.items.map((it, i) => {
+                    const product = products.find((p) => p.id === it.product_id);
+                    return (
                     <tr key={i}>
                       <td>
                         <select
@@ -320,6 +392,7 @@ export default function PurchaseBill() {
                           ))}
                         </select>
                       </td>
+                      <td>{product ? <TrackingBadge type={product.tracking_type} /> : '—'}</td>
                       <td>
                         <input
                           type="number"
@@ -345,7 +418,7 @@ export default function PurchaseBill() {
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeEditLine(i)}>Remove</button>
                       </td>
                     </tr>
-                  ))}
+                  ); })}
                 </tbody>
               </table>
             </div>
@@ -369,20 +442,24 @@ export default function PurchaseBill() {
               <thead>
                 <tr>
                   <th>Product</th>
+                  <th>Type</th>
                   <th>Quantity</th>
                   <th>Purchase price</th>
                   <th>Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {bill.items.map((it, i) => (
+                {bill.items.map((it, i) => {
+                  const product = products.find((p) => p.id === it.product_id);
+                  return (
                   <tr key={it.id || i}>
-                    <td>{products.find((p) => p.id === it.product_id)?.name ?? it.product_id}</td>
+                    <td>{product?.name ?? it.product_id}</td>
+                    <td>{product ? <TrackingBadge type={product.tracking_type} /> : '—'}</td>
                     <td>{it.quantity}</td>
                     <td>{formatMoney(it.purchase_price, tenant)}</td>
                     <td>{formatMoney(it.amount, tenant)}</td>
                   </tr>
-                ))}
+                ); })}
               </tbody>
             </table>
           </div>
@@ -394,13 +471,20 @@ export default function PurchaseBill() {
       </section>
 
       {isDraft && (
-        <div className="page__toolbar" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn--primary" onClick={() => setRecordConfirm(true)} disabled={recording}>
+        <div style={{ marginTop: '1rem' }}>
+          {hasSerialOrBatch && (
+            <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+              This bill has Serial or Batch products — click Record to enter serial numbers or batch/expiry.
+            </p>
+          )}
+          <div className="page__toolbar" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn--primary" onClick={openRecordFlow} disabled={recording}>
             {recording ? 'Recording…' : 'Record bill (update stock)'}
           </button>
           <button type="button" className="btn btn--secondary" onClick={handleDelete} disabled={deleting}>
             {deleting ? 'Deleting…' : 'Delete draft'}
           </button>
+          </div>
         </div>
       )}
 
@@ -452,6 +536,71 @@ export default function PurchaseBill() {
               <button type="button" className="btn btn--secondary" onClick={() => setRecordConfirm(false)}>Cancel</button>
               <button type="button" className="btn btn--primary" onClick={handleRecord} disabled={recording}>
                 {recording ? 'Recording…' : 'Record'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Serial/Batch collection modal */}
+      {recordModal && (
+        <div className="modal-backdrop" onClick={() => setRecordModal(false)}>
+          <div className="modal" style={{ maxWidth: '32rem' }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal__title">Enter serial / batch details</h2>
+            <p className="page__muted" style={{ marginBottom: '1rem', fontSize: '0.875rem' }}>
+              Some products require additional information before recording.
+            </p>
+            {Object.keys(serialInputs).map((pid) => {
+              const prod = products.find((p) => p.id === pid);
+              const item = (editForm?.items || []).find((it) => it.product_id === pid);
+              const qty = Number(item?.quantity) || 0;
+              const entered = (serialInputs[pid] || '').split(/[\n,]+/).filter((s) => s.trim()).length;
+              return (
+                <div key={pid} className="form__label" style={{ marginBottom: '1rem' }}>
+                  <span><strong>{prod?.name || 'Product'}</strong> — enter {qty} serial number(s) ({entered}/{qty})</span>
+                  <textarea
+                    className="form__input"
+                    rows={Math.min(qty, 6)}
+                    placeholder="One serial/IMEI per line"
+                    value={serialInputs[pid] || ''}
+                    onChange={(e) => setSerialInputs((prev) => ({ ...prev, [pid]: e.target.value }))}
+                  />
+                </div>
+              );
+            })}
+            {Object.keys(batchInputs).map((pid) => {
+              const prod = products.find((p) => p.id === pid);
+              return (
+                <div key={pid} style={{ marginBottom: '1rem' }}>
+                  <span className="form__label"><strong>{prod?.name || 'Product'}</strong> — batch details</span>
+                  <div className="form form--grid" style={{ gap: '0.5rem', marginTop: '0.25rem' }}>
+                    <label className="form__label">
+                      <span>Batch number</span>
+                      <input
+                        className="form__input"
+                        placeholder="e.g. B2026-03"
+                        value={batchInputs[pid]?.batch_number || ''}
+                        onChange={(e) => setBatchInputs((prev) => ({ ...prev, [pid]: { ...prev[pid], batch_number: e.target.value } }))}
+                        required
+                      />
+                    </label>
+                    <label className="form__label">
+                      <span>Expiry date (optional)</span>
+                      <input
+                        type="date"
+                        className="form__input"
+                        value={batchInputs[pid]?.expiry_date || ''}
+                        onChange={(e) => setBatchInputs((prev) => ({ ...prev, [pid]: { ...prev[pid], expiry_date: e.target.value } }))}
+                      />
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="modal__actions">
+              <button type="button" className="btn btn--secondary" onClick={() => setRecordModal(false)}>Cancel</button>
+              <button type="button" className="btn btn--primary" onClick={handleRecord} disabled={recording}>
+                {recording ? 'Recording…' : 'Record bill'}
               </button>
             </div>
           </div>

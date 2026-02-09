@@ -15,6 +15,34 @@ if (!supabaseUrl || !supabaseServiceKey) {
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+const RETRYABLE_NETWORK_CODES = ['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'];
+const AUTH_RETRIES = 2;
+const AUTH_RETRY_DELAY_MS = 500;
+
+function isRetryableNetworkError(e) {
+  const code = e?.code ?? e?.cause?.code ?? (e?.cause?.errno === -54 ? 'ECONNRESET' : '');
+  return RETRYABLE_NETWORK_CODES.includes(code) || (e?.message && String(e.message).includes('fetch failed'));
+}
+
+async function getUserWithRetry(token) {
+  let lastErr;
+  for (let attempt = 0; attempt <= AUTH_RETRIES; attempt++) {
+    try {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (error || !user) return { error: error?.message || 'Invalid or expired token', user: null };
+      return { error: null, user };
+    } catch (e) {
+      lastErr = e;
+      if (attempt < AUTH_RETRIES && isRetryableNetworkError(e)) {
+        await new Promise((r) => setTimeout(r, AUTH_RETRY_DELAY_MS));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
 function getBearerToken(req) {
   const auth = req.headers.authorization;
   if (!auth || typeof auth !== 'string' || !auth.startsWith('Bearer ')) return null;
@@ -37,14 +65,14 @@ export async function authMiddleware(req, res, next) {
       try {
         payload = jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
       } catch (_) {
-        const { data: { user }, error } = await supabase.auth.getUser(token);
+        const { error, user } = await getUserWithRetry(token);
         if (error || !user) {
           return res.status(401).json({ error: 'Invalid or expired token' });
         }
         payload = { sub: user.id, email: user.email };
       }
     } else {
-      const { data: { user }, error } = await supabase.auth.getUser(token);
+      const { error, user } = await getUserWithRetry(token);
       if (error || !user) {
         return res.status(401).json({ error: 'Invalid or expired token' });
       }
@@ -89,7 +117,7 @@ export async function optionalAuth(req, res, next) {
     if (jwtSecret) {
       payload = jwt.verify(token, jwtSecret, { algorithms: ['HS256'] });
     } else {
-      const { data: { user }, error } = await supabase.auth.getUser(token);
+      const { error, user } = await getUserWithRetry(token);
       if (error || !user) return res.status(401).json({ error: 'Invalid token' });
       payload = { sub: user.id, email: user.email };
     }

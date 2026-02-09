@@ -37,6 +37,7 @@ export default function Settings() {
   const [prodToggles, setProdToggles] = useState(cleanToggles(fc?.productForm));
   const [invToggles, setInvToggles] = useState(cleanToggles(fc?.invoiceLineItems));
   const [searchMethod, setSearchMethod] = useState(fc?.invoiceProductSearch?.method ?? 'dropdown');
+  const [defaultTrackingType, setDefaultTrackingType] = useState(fc?.defaultTrackingType ?? 'quantity');
   const [logoUploading, setLogoUploading] = useState(false);
 
   // Fetch available columns from DB on mount
@@ -65,6 +66,7 @@ export default function Settings() {
     setProdToggles(cleanToggles(tfc?.productForm));
     setInvToggles(cleanToggles(tfc?.invoiceLineItems));
     setSearchMethod(tfc?.invoiceProductSearch?.method ?? 'dropdown');
+    setDefaultTrackingType(tfc?.defaultTrackingType ?? 'quantity');
   }, [tenant?.name, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config]);
 
   function toggleProd(col) {
@@ -152,6 +154,7 @@ export default function Settings() {
           invoiceProductSearch: {
             method: searchMethod,
           },
+          defaultTrackingType,
         },
       });
       await refetchMe();
@@ -187,6 +190,19 @@ export default function Settings() {
               Slug: <code>{tenant.slug}</code> (read-only)
             </p>
           )}
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Inventory tracking</h3>
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            Default tracking type for new products. Can be overridden per product.
+          </p>
+          <label className="form__label">
+            <span>Default tracking type</span>
+            <select className="form__input" value={defaultTrackingType} onChange={(e) => setDefaultTrackingType(e.target.value)}>
+              <option value="quantity">Quantity — simple count (grocery, hardware, clothing)</option>
+              <option value="serial">Serial / IMEI — each unit tracked individually (mobiles, electronics)</option>
+              <option value="batch">Batch / Expiry — lot tracking with expiry dates (medical, perishables)</option>
+            </select>
+          </label>
+
           <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Product form fields</h3>
           <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
             Choose which fields to show when creating / editing a product. Name and Price are always shown.

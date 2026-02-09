@@ -8,10 +8,19 @@ import ListSkeleton from '../components/ListSkeleton';
 
 const emptyItem = () => ({ product_id: '', quantity: 1, purchase_price: 0 });
 
+const TRACKING_LABELS = { quantity: 'Qty', serial: 'Serial', batch: 'Batch' };
+
+function TrackingBadge({ type }) {
+  const t = type || 'quantity';
+  const colors = { quantity: 'badge--draft', serial: 'badge--sent', batch: 'badge--paid' };
+  return <span className={`badge ${colors[t] || ''}`} style={{ fontSize: '0.7rem' }}>{TRACKING_LABELS[t]}</span>;
+}
+
 export default function CreatePurchaseBill() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
   const [supplierId, setSupplierId] = useState('');
@@ -67,8 +76,8 @@ export default function CreatePurchaseBill() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
-    if (!supplierId || !billNumber.trim() || !billDate) {
-      setError('Supplier, bill number, and date are required.');
+    if (!supplierId || !billDate) {
+      setError('Supplier and date are required.');
       return;
     }
     const validItems = items
@@ -84,12 +93,13 @@ export default function CreatePurchaseBill() {
     }
     setSubmitting(true);
     try {
-      const bill = await api.post(token, '/api/purchase-bills', {
+      const payload = {
         supplier_id: supplierId,
-        bill_number: billNumber.trim(),
         bill_date: billDate,
         items: validItems,
-      });
+      };
+      if (billNumber.trim()) payload.bill_number = billNumber.trim();
+      const bill = await api.post(token, '/api/purchase-bills', payload);
       showToast('Purchase bill created', 'success');
       navigate(`/purchase-bills/${bill.id}`);
     } catch (e) {
@@ -111,9 +121,17 @@ export default function CreatePurchaseBill() {
     );
   }
 
+  const hasSerialOrBatch = items.some((it) => {
+    const p = products.find((pr) => pr.id === it.product_id);
+    return p && (p.tracking_type === 'serial' || p.tracking_type === 'batch');
+  });
+
   return (
     <div className="page">
       <h1 className="page__title">New purchase bill</h1>
+      <p className="page__muted" style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
+        Product type from Settings: <TrackingBadge type={defaultTrackingType} /> — Serial/Batch products need details when you Record the bill.
+      </p>
       {error && <div className="page__error">{error}</div>}
       <form onSubmit={handleSubmit} className="card page__section">
         <div className="form form--grid">
@@ -138,9 +156,9 @@ export default function CreatePurchaseBill() {
               className="form__input"
               value={billNumber}
               onChange={(e) => setBillNumber(e.target.value)}
-              placeholder="e.g. BILL-001"
-              required
+              placeholder="Leave blank for auto (e.g. PB-0001)"
             />
+            <span className="page__muted" style={{ display: 'block', fontSize: '0.8125rem', marginTop: '0.25rem' }}>Optional — leave blank to auto-generate</span>
           </label>
           <label className="form__label">
             <span>Bill date</span>
@@ -154,11 +172,17 @@ export default function CreatePurchaseBill() {
           </label>
         </div>
         <h3 className="card__subheading" style={{ marginTop: '1rem' }}>Items</h3>
+        {hasSerialOrBatch && (
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            Some products are Serial or Batch — after creating the bill, open it and click Record to enter serial numbers or batch/expiry.
+          </p>
+        )}
         <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
                 <th>Product</th>
+                <th>Type</th>
                 <th>Quantity</th>
                 <th>Purchase price</th>
                 <th>Amount</th>
@@ -166,7 +190,9 @@ export default function CreatePurchaseBill() {
               </tr>
             </thead>
             <tbody>
-              {items.map((it, i) => (
+              {items.map((it, i) => {
+                const product = products.find((p) => p.id === it.product_id);
+                return (
                 <tr key={i}>
                   <td>
                     <select
@@ -181,6 +207,7 @@ export default function CreatePurchaseBill() {
                       ))}
                     </select>
                   </td>
+                  <td>{product ? <TrackingBadge type={product.tracking_type} /> : '—'}</td>
                   <td>
                     <input
                       type="number"
@@ -210,7 +237,7 @@ export default function CreatePurchaseBill() {
                     </button>
                   </td>
                 </tr>
-              ))}
+              ); })}
             </tbody>
           </table>
         </div>

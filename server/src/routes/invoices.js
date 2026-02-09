@@ -25,6 +25,130 @@ async function getNextInvoiceNumber(tenantId) {
   return { invoiceNumber, nextNumber: next };
 }
 
+/**
+ * Deduct stock for all items when an invoice is sent.
+ * - Quantity products: decrease products.stock
+ * - Serial products: mark selected serials as 'sold'
+ * - Batch products: FEFO (first-expiry first-out) deduction
+ * Logs stock_movements for every deduction.
+ */
+async function deductStock(tenantId, invoiceId, items, serialIds = {}) {
+  const consumed = {}; // product_id -> next index into serialIds[product_id]
+  for (const it of items) {
+    if (!it.product_id) continue;
+    const qty = Number(it.quantity) || 0;
+    if (qty <= 0) continue;
+
+    let trackingType = 'quantity';
+    try {
+      const { data: prod } = await supabase.from('products').select('stock, tracking_type').eq('id', it.product_id).single();
+      if (!prod) continue;
+      trackingType = prod.tracking_type || 'quantity';
+
+      if (trackingType === 'serial') {
+        const allForProduct = serialIds[it.product_id] || [];
+        const start = consumed[it.product_id] || 0;
+        const selectedSerials = allForProduct.slice(start, start + qty);
+        consumed[it.product_id] = start + selectedSerials.length;
+        const invoiceItemId = it.id || null;
+        for (const serialId of selectedSerials) {
+          await supabase.from('product_serials').update({ status: 'sold', invoice_item_id: invoiceItemId }).eq('id', serialId).eq('tenant_id', tenantId);
+          try {
+            await supabase.from('stock_movements').insert({
+              tenant_id: tenantId,
+              product_id: it.product_id,
+              movement_type: 'sale',
+              direction: 'out',
+              quantity: 1,
+              reference_type: 'invoice',
+              reference_id: invoiceId,
+              serial_id: serialId,
+              cost_price: it.cost_price || 0,
+            });
+          } catch (e) { console.error('Stock movement insert error:', e.message); }
+        }
+        if (selectedSerials.length < qty) {
+          const remaining = qty - selectedSerials.length;
+          const { data: avail } = await supabase
+            .from('product_serials')
+            .select('id')
+            .eq('product_id', it.product_id)
+            .eq('tenant_id', tenantId)
+            .eq('status', 'available')
+            .order('created_at')
+            .limit(remaining);
+          for (const s of (avail || [])) {
+            await supabase.from('product_serials').update({ status: 'sold', invoice_item_id: invoiceItemId }).eq('id', s.id);
+            try {
+              await supabase.from('stock_movements').insert({
+                tenant_id: tenantId,
+                product_id: it.product_id,
+                movement_type: 'sale',
+                direction: 'out',
+                quantity: 1,
+                reference_type: 'invoice',
+                reference_id: invoiceId,
+                serial_id: s.id,
+                cost_price: it.cost_price || 0,
+              });
+            } catch (e) { console.error('Stock movement insert error:', e.message); }
+          }
+        }
+      } else if (trackingType === 'batch') {
+        // FEFO: first-expiry first-out
+        let remaining = qty;
+        const { data: batches } = await supabase
+          .from('product_batches')
+          .select('id, quantity, cost_price')
+          .eq('product_id', it.product_id)
+          .eq('tenant_id', tenantId)
+          .gt('quantity', 0)
+          .order('expiry_date', { ascending: true, nullsFirst: false });
+        for (const batch of (batches || [])) {
+          if (remaining <= 0) break;
+          const deduct = Math.min(remaining, Number(batch.quantity));
+          const newQty = Math.round((Number(batch.quantity) - deduct) * 100) / 100;
+          await supabase.from('product_batches').update({ quantity: newQty }).eq('id', batch.id);
+          remaining -= deduct;
+          try {
+            await supabase.from('stock_movements').insert({
+              tenant_id: tenantId,
+              product_id: it.product_id,
+              movement_type: 'sale',
+              direction: 'out',
+              quantity: deduct,
+              reference_type: 'invoice',
+              reference_id: invoiceId,
+              batch_id: batch.id,
+              cost_price: batch.cost_price || it.cost_price || 0,
+            });
+          } catch (e) { console.error('Stock movement insert error:', e.message); }
+        }
+      } else {
+        // Quantity product: just log movement
+        try {
+          await supabase.from('stock_movements').insert({
+            tenant_id: tenantId,
+            product_id: it.product_id,
+            movement_type: 'sale',
+            direction: 'out',
+            quantity: qty,
+            reference_type: 'invoice',
+            reference_id: invoiceId,
+            cost_price: it.cost_price || 0,
+          });
+        } catch (e) { console.error('Stock movement insert error:', e.message); }
+      }
+
+      // Decrease products.stock (all types)
+      const newStock = Math.max(0, Number(prod.stock) - qty);
+      await supabase.from('products').update({ stock: newStock, updated_at: new Date().toISOString() }).eq('id', it.product_id);
+    } catch (e) {
+      console.error('Stock deduction error:', e.message);
+    }
+  }
+}
+
 function validateItem(item, index) {
   const desc = (item?.description ?? '').toString().trim();
   if (!desc) return { error: `items[${index}].description is required` };
@@ -216,11 +340,9 @@ router.post('/', async (req, res, next) => {
     for (const it of items) {
       let { error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true, true));
       if (itemErr && String(itemErr.message || '').includes('does not exist')) {
-        // Retry without extra product columns (migration 00012 not yet applied)
         ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true, false)));
       }
       if (itemErr && String(itemErr.message || '').includes('does not exist')) {
-        // Retry without cost columns either (migration not yet applied)
         ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, false, false)));
       }
       if (itemErr) {
@@ -228,6 +350,16 @@ router.post('/', async (req, res, next) => {
         await supabase.from('invoices').delete().eq('id', invoice.id);
         return res.status(500).json({ error: 'Failed to create invoice items' });
       }
+    }
+
+    if (status === 'sent' || status === 'paid') {
+      const serialIds = body.serialIds || {};
+      const { data: insertedItems } = await supabase
+        .from('invoice_items')
+        .select('id, product_id, quantity, cost_price')
+        .eq('invoice_id', invoice.id)
+        .order('created_at');
+      await deductStock(req.tenantId, invoice.id, insertedItems || items, serialIds);
     }
 
     const { data: fullInvoice } = await supabase
@@ -319,6 +451,31 @@ router.get('/:id', async (req, res, next) => {
       supabase.from('invoice_items').select('*').eq('invoice_id', id).order('created_at'),
       supabase.from('payments').select('*').eq('invoice_id', id).eq('tenant_id', req.tenantId).order('paid_at').order('created_at'),
     ]);
+    const rawItems = items || [];
+    const itemIds = rawItems.map((i) => i.id).filter(Boolean);
+    const productIds = [...new Set(rawItems.map((i) => i.product_id).filter(Boolean))];
+
+    const [serialsRes, productsRes] = await Promise.all([
+      itemIds.length ? supabase.from('product_serials').select('id, serial_number, invoice_item_id').in('invoice_item_id', itemIds).order('created_at') : { data: [] },
+      productIds.length ? supabase.from('products').select('id, name, tracking_type').in('id', productIds) : { data: [] },
+    ]);
+
+    const serialsByItemId = {};
+    (serialsRes.data || []).forEach((s) => {
+      const key = s.invoice_item_id;
+      if (!key) return;
+      if (!serialsByItemId[key]) serialsByItemId[key] = [];
+      serialsByItemId[key].push({ id: s.id, serial_number: s.serial_number });
+    });
+    const productsById = {};
+    (productsRes.data || []).forEach((p) => { productsById[p.id] = p; });
+
+    const enrichedItems = rawItems.map((it) => ({
+      ...it,
+      serials: serialsByItemId[it.id] || [],
+      product: productsById[it.product_id] || null,
+    }));
+
     const customer = Array.isArray(invoice.customers) ? invoice.customers[0] : invoice.customers;
     const amountPaid = Number(invoice.amount_paid) || 0;
     const total = Number(invoice.total) || 0;
@@ -329,7 +486,7 @@ router.get('/:id', async (req, res, next) => {
       amount_paid: amountPaid,
       balance,
       customer: customer || null,
-      invoice_items: items || [],
+      invoice_items: enrichedItems,
       payments: payments || [],
     });
   } catch (err) {
@@ -427,7 +584,9 @@ router.patch('/:id', async (req, res, next) => {
     const rawItems = Array.isArray(body.items) ? body.items : null;
 
     if (rawItems !== null) {
-      // Full draft update
+      // Full draft update (with optional status change to 'sent')
+      const newStatus = (body.status ?? 'draft').toString().toLowerCase();
+      if (!['draft', 'sent'].includes(newStatus)) return res.status(400).json({ error: 'status must be draft or sent when updating items' });
       const { data: existing, error: fetchErr } = await supabase
         .from('invoices')
         .select('status')
@@ -435,7 +594,7 @@ router.patch('/:id', async (req, res, next) => {
         .eq('tenant_id', req.tenantId)
         .single();
       if (fetchErr || !existing) return res.status(404).json({ error: 'Invoice not found' });
-      if (existing.status !== 'draft') return res.status(400).json({ error: 'Only draft invoices can be edited' });
+      if (existing.status === 'paid') return res.status(400).json({ error: 'Paid invoices cannot be edited' });
 
       const customerId = (body.customerId ?? body.customer_id ?? '').toString().trim();
       if (!customerId) return res.status(400).json({ error: 'customerId is required' });
@@ -515,7 +674,7 @@ router.patch('/:id', async (req, res, next) => {
       await supabase.from('invoice_items').delete().eq('invoice_id', id);
       const { data: invoice, error: updateErr } = await supabase
         .from('invoices')
-        .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal, tax_percent: effectiveTaxPercent, tax_amount: taxAmount, total, gst_type: gstType })
+        .update({ customer_id: customerId, invoice_date: invoiceDate, subtotal, tax_percent: effectiveTaxPercent, tax_amount: taxAmount, total, gst_type: gstType, status: newStatus })
         .eq('id', id)
         .eq('tenant_id', req.tenantId)
         .select()
@@ -564,6 +723,12 @@ router.patch('/:id', async (req, res, next) => {
           return res.status(500).json({ error: 'Failed to update invoice items' });
         }
       }
+      // Deduct stock if status changed to 'sent'
+      if (newStatus === 'sent') {
+        const serialIds = body.serialIds || {};
+        await deductStock(req.tenantId, id, items, serialIds);
+      }
+
       const { data: itemsData } = await supabase.from('invoice_items').select('*').eq('invoice_id', id).order('created_at');
       return res.json({ ...invoice, invoice_items: itemsData || [] });
     }
@@ -591,6 +756,19 @@ router.patch('/:id', async (req, res, next) => {
       console.error(updateErr);
       return res.status(500).json({ error: 'Failed to update invoice status' });
     }
+
+    // Deduct stock when moving from draft to sent
+    if (existing.status === 'draft' && (status === 'sent' || status === 'paid')) {
+      const { data: invItems } = await supabase
+        .from('invoice_items')
+        .select('product_id, quantity, cost_price')
+        .eq('invoice_id', id);
+      if (invItems && invItems.length > 0) {
+        const serialIds = body.serialIds || {};
+        await deductStock(req.tenantId, id, invItems, serialIds);
+      }
+    }
+
     return res.json(updated);
   } catch (err) {
     next(err);
@@ -607,13 +785,39 @@ router.delete('/:id', async (req, res, next) => {
       .eq('tenant_id', req.tenantId)
       .single();
     if (fetchErr || !existing) return res.status(404).json({ error: 'Invoice not found' });
-    if (existing.status !== 'draft') return res.status(400).json({ error: 'Only draft invoices can be deleted' });
+    if (existing.status === 'paid') return res.status(400).json({ error: 'Paid invoices cannot be deleted' });
     const { error: delErr } = await supabase.from('invoices').delete().eq('id', id).eq('tenant_id', req.tenantId);
     if (delErr) {
       console.error(delErr);
       return res.status(500).json({ error: 'Failed to delete invoice' });
     }
     return res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /cleanup-drafts
+ * Delete draft invoices older than N days (default 30).
+ * Useful as a scheduled task or manual trigger.
+ */
+router.post('/cleanup-drafts', async (req, res, next) => {
+  try {
+    const days = Math.max(1, parseInt(req.body?.days, 10) || 30);
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+    const { data, error: err } = await supabase
+      .from('invoices')
+      .delete()
+      .eq('tenant_id', req.tenantId)
+      .eq('status', 'draft')
+      .lt('created_at', cutoff)
+      .select('id');
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Failed to cleanup drafts' });
+    }
+    return res.json({ deleted: (data || []).length });
   } catch (err) {
     next(err);
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -8,9 +8,36 @@ import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ListSkeleton from '../components/ListSkeleton';
 
-const AUTOSAVE_DEBOUNCE_MS = 2500;
+/** Dropdown of available serials (IMEI) for a serial product. Fetches from API when productId is set. */
+function SerialSelect({ productId, value, onChange, className = '' }) {
+  const { token } = useAuth();
+  const [serials, setSerials] = useState([]);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!productId || !token) {
+      setSerials([]);
+      return;
+    }
+    setLoading(true);
+    api.get(token, `/api/products/${productId}/serials?status=available&limit=200`)
+      .then((data) => setSerials(Array.isArray(data) ? data : data?.data ?? []))
+      .catch(() => setSerials([]))
+      .finally(() => setLoading(false));
+  }, [productId, token]);
+  if (!productId) return <span className={className}>—</span>;
+  if (loading) return <span className={className}>Loading…</span>;
+  return (
+    <select className={className || 'form__input form__input--sm'} value={value || ''} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Select serial (IMEI)</option>
+      {serials.map((s) => (
+        <option key={s.id} value={s.id}>{s.serial_number || s.id}</option>
+      ))}
+      {serials.length === 0 && <option value="">No available serials</option>}
+    </select>
+  );
+}
 
-const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0 });
+const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0, selectedSerialId: '' });
 
 function TrackingBadge({ type }) {
   const t = type || 'quantity';
@@ -27,14 +54,13 @@ function productLabelFn(p, fmt, tenant) {
 }
 
 function itemFromRow(row) {
-  // Copy all fields from the DB row (snake_case)
   const item = {
     productId: row.product_id || '',
     description: row.description || '',
     quantity: Number(row.quantity) || 1,
     unitPrice: Number(row.unit_price) || 0,
+    selectedSerialId: '', // serial picker selection not stored on invoice_items
   };
-  // Dynamically copy any extra columns that exist in the row
   for (const key of Object.keys(row)) {
     if (!(key in item) && key !== 'id' && key !== 'invoice_id' && key !== 'product_id' &&
         key !== 'description' && key !== 'quantity' && key !== 'unit_price' && key !== 'amount' &&
@@ -47,8 +73,14 @@ function itemFromRow(row) {
   return item;
 }
 
-export default function EditInvoice() {
-  const { id } = useParams();
+/**
+ * Unified invoice form for create and edit.
+ * - No autosave: explicit "Save as Draft" or "Save & Send" buttons.
+ * - If :id param exists, loads existing draft for editing.
+ */
+export default function InvoiceForm() {
+  const { id } = useParams(); // undefined = create, string = edit
+  const isEdit = !!id;
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
@@ -60,7 +92,7 @@ export default function EditInvoice() {
     const allowed = INVOICE_COLS_BY_TRACKING_TYPE[defaultTrackingType];
     return Object.keys(invoiceLineItems).filter((k) => {
       if (!invoiceLineItems[k]) return false;
-      if (k === 'imei') return false;
+      if (k === 'imei') return false; // serials from picker, not product column
       if (!allowed) return true;
       return allowed.includes(k);
     });
@@ -73,88 +105,50 @@ export default function EditInvoice() {
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [customerId, setCustomerId] = useState('');
-  const [invoiceDate, setInvoiceDate] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [gstType, setGstType] = useState('intra');
   const [items, setItems] = useState([emptyItem()]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saveStatus, setSaveStatus] = useState('idle');
-  const [lastSavedAt, setLastSavedAt] = useState(null);
-  const [loadedInvoice, setLoadedInvoice] = useState(null);
-  const debounceRef = useRef(null);
   const typeaheadDebounceRef = useRef(null);
-  const initialLoadRef = useRef(false);
 
-  const canAutosave = !loading && customerId && invoiceDate && items.length > 0 &&
-    items.some((it) => (it.description || '').trim() || it.productId);
-
-  const performSave = useCallback(async () => {
-    if (!token || !id || !canAutosave) return;
-    setSaveStatus('saving');
-    try {
-      await api.patch(token, `/api/invoices/${id}`, {
-        customerId,
-        invoiceDate,
-        gst_type: gstType,
-        items: items.map((it) => ({
-          productId: it.productId || undefined,
-          description: (it.description || '').trim() || 'Item',
-          quantity: Number(it.quantity) || 1,
-          unitPrice: Number(it.unitPrice) || 0,
-        })),
-      });
-      setSaveStatus('saved');
-      setLastSavedAt(new Date());
-    } catch (e) {
-      setSaveStatus('idle');
-      setError(e.message || e.data?.error || 'Autosave failed');
-    }
-  }, [token, id, customerId, invoiceDate, gstType, items, canAutosave]);
-
-  useEffect(() => {
-    if (!canAutosave || !initialLoadRef.current) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      performSave();
-    }, AUTOSAVE_DEBOUNCE_MS);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [customerId, invoiceDate, items, canAutosave, performSave]);
-
+  // Load customers, products, and (if edit) the existing invoice
   const productLimit = isTypeahead ? (invoiceProductSearch.limit || 20) : (invoiceProductSearch.limit || 500);
   useEffect(() => {
-    if (!token || !id) return;
-    Promise.all([
+    if (!token) return;
+    const fetches = [
       api.get(token, '/api/customers?limit=500'),
       api.get(token, `/api/products?limit=${productLimit}`),
-      api.get(token, `/api/invoices/${id}`),
-    ])
+    ];
+    if (isEdit) fetches.push(api.get(token, `/api/invoices/${id}`));
+
+    Promise.all(fetches)
       .then(([cRes, pRes, inv]) => {
         const c = Array.isArray(cRes) ? cRes : (cRes?.data ?? []);
         const p = Array.isArray(pRes) ? pRes : (pRes?.data ?? []);
         setCustomers(c);
         setProducts(p);
-        if (!inv) {
-          setError('Invoice not found');
-          return;
+
+        if (isEdit && inv) {
+          if (inv.status === 'paid') {
+            navigate(`/invoices/${id}/print`, { replace: true });
+            return;
+          }
+          setCustomerId(inv.customer_id || inv.customer?.id || '');
+          setInvoiceDate(inv.invoice_date || '');
+          setGstType(inv.gst_type === 'inter' ? 'inter' : 'intra');
+          const invItems = inv.invoice_items || [];
+          setItems(invItems.length ? invItems.map(itemFromRow) : [emptyItem()]);
+        } else if (!isEdit && c.length) {
+          setCustomerId(c[0].id);
         }
-        if (inv.status !== 'draft') {
-          navigate(`/invoices/${id}/print`, { replace: true });
-          return;
-        }
-        setCustomerId(inv.customer_id || inv.customer?.id || '');
-        setInvoiceDate(inv.invoice_date || '');
-        setGstType(inv.gst_type === 'inter' ? 'inter' : 'intra');
-        const invItems = inv.invoice_items || [];
-        setItems(invItems.length ? invItems.map(itemFromRow) : [emptyItem()]);
-        setLoadedInvoice(inv);
-        initialLoadRef.current = true;
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token, id, navigate, productLimit]);
+  }, [token, id, isEdit, navigate, productLimit]);
 
+  // Typeahead search
   useEffect(() => {
     if (!token || !isTypeahead) return;
     if (!productSearchQuery.trim()) {
@@ -182,7 +176,7 @@ export default function EditInvoice() {
   }, [token, isTypeahead, productSearchQuery, invoiceProductSearch.limit, invoiceProductSearch.typeaheadDebounceMs]);
 
   function makeLineFromProduct(product) {
-    const line = { productId: product.id, description: product.name, quantity: 1, unitPrice: product.price };
+    const line = { productId: product.id, description: product.name, quantity: 1, unitPrice: product.price, selectedSerialId: '' };
     for (const col of extraInvCols) {
       line[col] = product[col] || '';
     }
@@ -213,6 +207,7 @@ export default function EditInvoice() {
       const next = [...prev];
       next[i] = { ...next[i], [field]: value };
       if (field === 'productId' && value) {
+        next[i].selectedSerialId = '';
         const product = products.find((p) => p.id === value);
         if (product) {
           next[i].description = product.name;
@@ -240,29 +235,63 @@ export default function EditInvoice() {
     return p && (p.tracking_type === 'serial' || p.tracking_type === 'batch');
   });
 
-  async function handleSubmit(e) {
-    e.preventDefault();
+  function buildPayload(status) {
+    const payload = {
+      customerId,
+      invoiceDate,
+      status,
+      gst_type: gstType,
+      items: items.map((it) => ({
+        productId: it.productId || undefined,
+        description: (it.description || '').trim() || 'Item',
+        quantity: Number(it.quantity) || 1,
+        unitPrice: Number(it.unitPrice) || 0,
+      })),
+    };
+    if (status === 'sent') {
+      const serialIds = {};
+      items.forEach((it) => {
+        if (it.productId && it.selectedSerialId) {
+          const pid = it.productId;
+          if (!serialIds[pid]) serialIds[pid] = [];
+          serialIds[pid].push(it.selectedSerialId);
+        }
+      });
+      if (Object.keys(serialIds).length) payload.serialIds = serialIds;
+    }
+    return payload;
+  }
+
+  async function handleSave(status) {
     setError('');
     setSubmitting(true);
     try {
-      await api.patch(token, `/api/invoices/${id}`, {
-        customerId,
-        invoiceDate,
-        gst_type: gstType,
-        items: items.map((it) => ({
-          productId: it.productId || undefined,
-          description: (it.description || '').trim() || 'Item',
-          quantity: Number(it.quantity) || 1,
-          unitPrice: Number(it.unitPrice) || 0,
-        })),
-      });
-      showToast('Invoice updated', 'success');
-      navigate(`/invoices/${id}/print`);
+      const payload = buildPayload(status);
+      let inv;
+      if (isEdit) {
+        inv = await api.patch(token, `/api/invoices/${id}`, payload);
+        inv = inv || { id };
+      } else {
+        inv = await api.post(token, '/api/invoices', payload);
+      }
+      const msg = status === 'draft' ? 'Invoice saved as draft' : 'Invoice saved & sent';
+      showToast(msg, 'success');
+      if (status === 'sent') {
+        navigate(`/invoices/${inv.id || id}/print`);
+      } else {
+        navigate('/invoices');
+      }
     } catch (e) {
-      setError(e.message || e.data?.error || 'Failed to update invoice');
+      setError(e.message || e.data?.error || 'Failed to save invoice');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    // Default form submit = Save & Send
+    handleSave('sent');
   }
 
   const META_COLS = ['company', 'ram_storage', 'color'];
@@ -270,10 +299,10 @@ export default function EditInvoice() {
   if (loading) {
     return (
       <div className="page">
-        <h1 className="page__title">Edit invoice</h1>
-        <p className="page__muted">Loading invoice…</p>
+        <h1 className="page__title">{isEdit ? 'Edit invoice' : 'New invoice'}</h1>
+        <p className="page__muted">Loading…</p>
         <div className="card page__section">
-          <ListSkeleton rows={5} columns={3} />
+          <ListSkeleton rows={4} columns={2} />
         </div>
       </div>
     );
@@ -281,15 +310,10 @@ export default function EditInvoice() {
 
   return (
     <div className="page">
-      <h1 className="page__title">Edit invoice</h1>
+      <h1 className="page__title">{isEdit ? 'Edit invoice' : 'New invoice'}</h1>
       <p className="page__muted" style={{ fontSize: '0.875rem', marginTop: '0.25rem' }}>
-        Product type from Settings: <TrackingBadge type={defaultTrackingType} /> — Serial/Batch: stock is allocated when you send the invoice.
+        Product type from Settings: <TrackingBadge type={defaultTrackingType} /> — Serial/Batch: stock is allocated when you send.
       </p>
-      {(saveStatus === 'saving' || saveStatus === 'saved') && (
-        <p className="page__muted invoice-form__autosave" style={{ marginBottom: '0.5rem' }}>
-          {saveStatus === 'saving' ? 'Saving…' : lastSavedAt ? `Saved at ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Saved'}
-        </p>
-      )}
       {error && <div className="page__error">{error}</div>}
       <form onSubmit={handleSubmit} className="card page__section">
         <div className="form form--grid">
@@ -315,7 +339,7 @@ export default function EditInvoice() {
         <h3 className="invoice-form__items-title">Items</h3>
         <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
           Type shows each line’s product: quantity, serial, or batch.
-          {hasSerialOrBatch && ' Stock is deducted when you send the invoice. For serial products you can select which serials to sell when sending.'}
+          {hasSerialOrBatch && ' For serial products, pick which serial (IMEI) to sell below; stock is deducted when you Save & Send.'}
         </p>
         {isTypeahead && (
           <div className="typeahead-wrap" style={{ marginBottom: '0.75rem' }}>
@@ -355,30 +379,38 @@ export default function EditInvoice() {
           </div>
         )}
 
+        {/* Mobile: card-based line items */}
         <div className="invoice-items-cards">
-          {items.map((it, i) => (
-            <div key={i} className="invoice-item-card">
-              <label className="form__label">
-                <span>Product (optional)</span>
-                <select className="form__input" value={it.productId} onChange={(e) => updateLine(i, 'productId', e.target.value)}>
-                  <option value="">—</option>
-                  {products.map((p) => <option key={p.id} value={p.id}>{productLabelFn(p, formatMoney, tenant)}</option>)}
-                </select>
-              </label>
-              <div className="form__label">
-                <span>Type</span>
-                <span className="form__readonly">
-                  {(() => { const p = products.find((pr) => pr.id === it.productId); return p ? <TrackingBadge type={p.tracking_type} /> : '—'; })()}
-                </span>
-              </div>
-              <label className="form__label">
-                <span>Description</span>
-                <input className="form__input" value={it.description} onChange={(e) => updateLine(i, 'description', e.target.value)} placeholder="Description" />
-              </label>
-              {extraInvCols.map((col) => it[col] ? (
-                <div key={col} className="form__label"><span>{columnLabel(col)}</span><span className="form__readonly">{it[col]}</span></div>
-              ) : null)}
-              <div className="invoice-item-card__row">
+          {items.map((it, i) => {
+            const product = products.find((p) => p.id === it.productId);
+            const isSerial = product?.tracking_type === 'serial';
+            return (
+              <div key={i} className="invoice-item-card">
+                <label className="form__label">
+                  <span>Product (optional)</span>
+                  <select className="form__input" value={it.productId} onChange={(e) => updateLine(i, 'productId', e.target.value)}>
+                    <option value="">—</option>
+                    {products.map((p) => <option key={p.id} value={p.id}>{productLabelFn(p, formatMoney, tenant)}</option>)}
+                  </select>
+                </label>
+                <div className="form__label">
+                  <span>Type</span>
+                  <span className="form__readonly">{product ? <TrackingBadge type={product.tracking_type} /> : '—'}</span>
+                </div>
+                {isSerial && (
+                  <div className="form__label">
+                    <span>Serial (IMEI) to sell</span>
+                    <SerialSelect productId={it.productId} value={it.selectedSerialId} onChange={(v) => updateLine(i, 'selectedSerialId', v)} className="form__input" />
+                  </div>
+                )}
+                <label className="form__label">
+                  <span>Description</span>
+                  <input className="form__input" value={it.description} onChange={(e) => updateLine(i, 'description', e.target.value)} placeholder="Description" />
+                </label>
+                {extraInvCols.map((col) => it[col] ? (
+                  <div key={col} className="form__label"><span>{columnLabel(col)}</span><span className="form__readonly">{it[col]}</span></div>
+                ) : null)}
+                <div className="invoice-item-card__row">
                 <label className="form__label" style={{ flex: 1 }}>
                   <span>Qty</span>
                   <input type="number" min="0.01" step="0.01" className="form__input" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
@@ -395,9 +427,11 @@ export default function EditInvoice() {
                 <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>Remove</button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
+        {/* Tablet+: table-based line items */}
         <div className="invoice-items-table">
           <div className="table-wrap invoice-form__table-wrap">
             <table className="table">
@@ -405,6 +439,7 @@ export default function EditInvoice() {
                 <tr>
                   <th>Product (optional)</th>
                   <th>Type</th>
+                  {(defaultTrackingType === 'serial' || hasSerialOrBatch) && <th>Serial (IMEI)</th>}
                   <th>Description</th>
                   {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
                   <th>Qty</th>
@@ -416,6 +451,7 @@ export default function EditInvoice() {
               <tbody>
                 {items.map((it, i) => {
                   const product = products.find((p) => p.id === it.productId);
+                  const isSerial = product?.tracking_type === 'serial';
                   return (
                     <tr key={i}>
                       <td>
@@ -425,6 +461,15 @@ export default function EditInvoice() {
                         </select>
                       </td>
                       <td>{product ? <TrackingBadge type={product.tracking_type} /> : '—'}</td>
+                      {(defaultTrackingType === 'serial' || hasSerialOrBatch) && (
+                        <td>
+                          {isSerial ? (
+                            <SerialSelect productId={it.productId} value={it.selectedSerialId} onChange={(v) => updateLine(i, 'selectedSerialId', v)} />
+                          ) : (
+                            <span>—</span>
+                          )}
+                        </td>
+                      )}
                       <td>
                         <input className="form__input form__input--sm" value={it.description} onChange={(e) => updateLine(i, 'description', e.target.value)} placeholder="Description" />
                       </td>
@@ -454,25 +499,21 @@ export default function EditInvoice() {
             <p className="invoice-form__total">Tax ({taxPercent}%): {formatMoney(taxAmount, tenant)}</p>
           )}
           <p className="invoice-form__total"><strong>Total: {formatMoney(total, tenant)}</strong></p>
-          {(() => {
-            const invItems = loadedInvoice?.invoice_items;
-            if (!invItems?.length) return null;
-            const costTotal = invItems.reduce((s, row) => s + (Number(row.cost_amount) || 0), 0);
-            const grossProfit = total - costTotal;
-            const profitPct = total > 0 ? (grossProfit / total * 100) : 0;
-            return (
-              <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px solid var(--border)', fontSize: '0.9rem', color: 'var(--muted)' }}>
-                <p className="invoice-form__total">Cost total: {formatMoney(costTotal, tenant)}</p>
-                <p className="invoice-form__total">Gross profit: {formatMoney(grossProfit, tenant)}</p>
-                <p className="invoice-form__total">Profit %: {profitPct.toFixed(1)}%</p>
-              </div>
-            );
-          })()}
         </div>
-        <div className="form__actions">
-          <Link to={`/invoices/${id}/print`} className="btn btn--secondary">Cancel</Link>
+        <div className="form__actions" style={{ gap: '0.75rem' }}>
+          {isEdit && (
+            <Link to={`/invoices/${id}/print`} className="btn btn--ghost">Cancel</Link>
+          )}
+          <button
+            type="button"
+            className="btn btn--secondary"
+            disabled={submitting}
+            onClick={() => handleSave('draft')}
+          >
+            {submitting ? 'Saving…' : 'Save as Draft'}
+          </button>
           <button type="submit" className="btn btn--primary" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Save changes'}
+            {submitting ? 'Saving…' : 'Save & Send'}
           </button>
         </div>
       </form>
