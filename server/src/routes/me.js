@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const router = Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const tenantFields = 'id, name, slug, currency, currency_symbol, gstin, tax_percent, invoice_prefix, invoice_next_number, invoice_header_note, invoice_footer_note, logo_url, invoice_page_size, business_type, feature_config';
+const tenantFields = 'id, name, slug, currency, currency_symbol, gstin, address, phone, tax_percent, invoice_prefix, invoice_next_number, invoice_header_note, invoice_footer_note, logo_url, invoice_page_size, business_type, feature_config';
 const BUCKET = 'tenant-assets';
 const MAX_SIZE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -36,6 +36,8 @@ router.get('/', async (req, res, next) => {
         invoice_next_number: tenant.invoice_next_number != null ? Number(tenant.invoice_next_number) : 1,
         invoice_header_note: tenant.invoice_header_note ?? null,
         invoice_footer_note: tenant.invoice_footer_note ?? null,
+        address: tenant.address ?? null,
+        phone: tenant.phone ?? null,
         logo_url: tenant.logo_url ?? null,
         invoice_page_size: tenant.invoice_page_size ?? 'A4',
         feature_config: tenant.feature_config ?? {},
@@ -59,6 +61,8 @@ router.patch('/', async (req, res, next) => {
     if (body.currency !== undefined) updates.currency = (body.currency ?? 'INR').toString().trim().slice(0, 10) || 'INR';
     if (body.currency_symbol !== undefined) updates.currency_symbol = (body.currency_symbol ?? '').toString().trim().slice(0, 10) || null;
     if (body.gstin !== undefined) updates.gstin = (body.gstin ?? '').toString().trim().slice(0, 50) || null;
+    if (body.address !== undefined) updates.address = (body.address ?? '').toString().trim().slice(0, 500) || null;
+    if (body.phone !== undefined) updates.phone = (body.phone ?? '').toString().trim().slice(0, 20) || null;
     if (body.tax_percent !== undefined) {
       const p = Number(body.tax_percent);
       if (Number.isNaN(p) || p < 0 || p > 100) return res.status(400).json({ error: 'tax_percent must be 0–100' });

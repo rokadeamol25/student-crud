@@ -8,6 +8,8 @@ export default function Settings() {
   const { token, tenant, refetchMe } = useAuth();
   const { showToast } = useToast();
   const [name, setName] = useState(tenant?.name ?? '');
+  const [address, setAddress] = useState(tenant?.address ?? '');
+  const [phone, setPhone] = useState(tenant?.phone ?? '');
   const [currency, setCurrency] = useState(tenant?.currency ?? 'INR');
   const [currencySymbol, setCurrencySymbol] = useState(tenant?.currency_symbol ?? '₹');
   const [gstin, setGstin] = useState(tenant?.gstin ?? '');
@@ -53,6 +55,8 @@ export default function Settings() {
 
   useEffect(() => {
     if (tenant?.name !== undefined) setName(tenant.name ?? '');
+    if (tenant?.address !== undefined) setAddress(tenant.address ?? '');
+    if (tenant?.phone !== undefined) setPhone(tenant.phone ?? '');
     if (tenant?.currency !== undefined) setCurrency(tenant.currency ?? 'INR');
     if (tenant?.currency_symbol !== undefined) setCurrencySymbol(tenant.currency_symbol ?? '₹');
     if (tenant?.gstin !== undefined) setGstin(tenant.gstin ?? '');
@@ -67,7 +71,7 @@ export default function Settings() {
     setInvToggles(cleanToggles(tfc?.invoiceLineItems));
     setSearchMethod(tfc?.invoiceProductSearch?.method ?? 'dropdown');
     setDefaultTrackingType(tfc?.defaultTrackingType ?? 'quantity');
-  }, [tenant?.name, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config]);
+  }, [tenant?.name, tenant?.address, tenant?.phone, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config]);
 
   function toggleProd(col) {
     setProdToggles((prev) => ({ ...prev, [col]: !prev[col] }));
@@ -139,6 +143,8 @@ export default function Settings() {
       }
       await api.patch(token, '/api/me', {
         name: (name ?? '').trim(),
+        address: (address ?? '').trim() || undefined,
+        phone: (phone ?? '').trim() || undefined,
         currency: (currency ?? '').trim() || 'INR',
         currency_symbol: (currencySymbol ?? '').trim() || undefined,
         gstin: (gstin ?? '').trim() || undefined,
@@ -183,6 +189,27 @@ export default function Settings() {
               placeholder="e.g. Kiran Store"
               required
               maxLength={500}
+            />
+          </label>
+          <label className="form__label">
+            <span>Shop address</span>
+            <textarea
+              className="form__input"
+              rows={2}
+              value={address ?? ''}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="e.g. Shop No. 5, Main Road, Pune 411001"
+              maxLength={500}
+            />
+          </label>
+          <label className="form__label">
+            <span>Phone number</span>
+            <input
+              className="form__input"
+              value={phone ?? ''}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="e.g. 9876543210"
+              maxLength={20}
             />
           </label>
           {tenant?.slug && (
