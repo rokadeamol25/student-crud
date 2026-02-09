@@ -166,13 +166,17 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: center;
   gap: 5px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0.5rem;
   background: transparent;
   border: none;
   cursor: pointer;
   z-index: 52;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .layout__hamburger-line {
   display: block;
@@ -206,6 +210,8 @@
 }
 .layout__nav--open {
   display: flex;
+  position: relative;
+  z-index: 51;
 }
 .layout__nav a,
 .layout__nav .btn {

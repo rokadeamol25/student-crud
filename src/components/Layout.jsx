@@ -20,6 +20,15 @@ export default function Layout() {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
+  // lock body scroll when mobile menu is open
+  useEffect(() => {
+    if (menuOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [menuOpen]);
+
   function handleLogout() {
     logout();
     navigate('/login');
