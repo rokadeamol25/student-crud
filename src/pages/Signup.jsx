@@ -59,7 +59,7 @@ export default function Signup() {
           </button>
         </form>
         <p className="auth-card__footer">
-          Already have an account? <Link to="/login">Log in2</Link>
+          Already have an account? <Link to="/login">Log in</Link>
         </p>
       </div>
     </div>
