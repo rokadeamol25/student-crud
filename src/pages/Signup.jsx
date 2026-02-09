@@ -44,7 +44,7 @@ export default function Signup() {
             <Link to="/login" className="btn btn--primary">Go to Log in</Link>
           </p>
           <p className="auth-card__footer" style={{ marginTop: 12 }}>
-            Already have an account? <Link to="/login">Log in</Link>
+            Already have an account? <Link to="/login">Log in2</Link>
           </p>
         </div>
       </div>
