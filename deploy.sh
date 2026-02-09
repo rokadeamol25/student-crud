@@ -2,6 +2,8 @@
 set -e
 cd /var/www/student-crud
 
+# Remove local deploy.sh so git pull can overwrite (avoids "untracked file would be overwritten by merge")
+rm -f deploy.sh
 git pull origin main
 
 # Install dependencies if needed
