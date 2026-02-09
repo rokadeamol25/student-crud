@@ -8,12 +8,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      # If you get "dial tcp ***:22: i/o timeout", the VPS is not accepting SSH from GitHub's IPs.
+      # On VPS: ufw allow 22 && ufw reload. In Hostinger panel, ensure no firewall blocks port 22.
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VPS_HOST }}
+          port: 22
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 2m
           script: |
             export VITE_SUPABASE_URL="${{ secrets.VITE_SUPABASE_URL }}"
             export VITE_SUPABASE_ANON_KEY="${{ secrets.VITE_SUPABASE_ANON_KEY }}"
