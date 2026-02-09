@@ -19,7 +19,11 @@ function validateCreate(body) {
   const hsnSacCode = (body?.hsn_sac_code ?? body?.hsnSacCode ?? '').toString().trim().slice(0, 20) || null;
   const p = Number(body?.tax_percent);
   const taxPercent = (body?.tax_percent !== undefined && body?.tax_percent !== null && !Number.isNaN(p) && p >= 0 && p <= 100) ? p : null;
-  return { name, price, unit, hsn_sac_code: hsnSacCode, tax_percent: taxPercent };
+  const company = (body?.company ?? '').toString().trim().slice(0, 200) || null;
+  const ramStorage = (body?.ram_storage ?? '').toString().trim().slice(0, 100) || null;
+  const imei = (body?.imei ?? '').toString().trim().slice(0, 50) || null;
+  const color = (body?.color ?? '').toString().trim().slice(0, 100) || null;
+  return { name, price, unit, hsn_sac_code: hsnSacCode, tax_percent: taxPercent, company, ram_storage: ramStorage, imei, color };
 }
 
 router.post('/', async (req, res, next) => {
@@ -37,6 +41,10 @@ router.post('/', async (req, res, next) => {
         unit: validated.unit,
         hsn_sac_code: validated.hsn_sac_code,
         tax_percent: validated.tax_percent,
+        company: validated.company,
+        ram_storage: validated.ram_storage,
+        imei: validated.imei,
+        color: validated.color,
       })
       .select()
       .single();
@@ -58,8 +66,8 @@ router.get('/', async (req, res, next) => {
       .eq('tenant_id', req.tenantId)
       .order('name');
     const search = (req.query?.q ?? '').toString().trim();
-    if (search) q = q.ilike('name', `%${search}%`);
-    const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 100);
+    if (search) q = q.or(`name.ilike.%${search}%,company.ilike.%${search}%,imei.ilike.%${search}%`);
+    const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 500);
     const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
     q = q.range(offset, offset + limit - 1);
     const { data, error, count } = await q;
@@ -113,6 +121,10 @@ router.patch('/:id', async (req, res, next) => {
       const p = Number(body.tax_percent);
       updates.tax_percent = (Number.isNaN(p) || p < 0 || p > 100) ? null : p;
     }
+    if (body.company !== undefined) updates.company = (body.company ?? '').toString().trim().slice(0, 200) || null;
+    if (body.ram_storage !== undefined) updates.ram_storage = (body.ram_storage ?? '').toString().trim().slice(0, 100) || null;
+    if (body.imei !== undefined) updates.imei = (body.imei ?? '').toString().trim().slice(0, 50) || null;
+    if (body.color !== undefined) updates.color = (body.color ?? '').toString().trim().slice(0, 100) || null;
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
     const { data, error } = await supabase
       .from('products')

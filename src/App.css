@@ -355,7 +355,14 @@
   box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
 }
 .form__input--sm { padding: 0.5rem 0.75rem; font-size: 0.875rem; min-height: 2.5rem; }
-.form__input--narrow { max-width: none; }
+.form__input--narrow { max-width: none; min-width: 4.5rem; }
+.form__readonly {
+  display: block;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  color: var(--text);
+  background: none;
+}
 .form__label {
   display: flex;
   flex-direction: column;
@@ -559,7 +566,7 @@
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
-.invoice-form__table-wrap .table { min-width: 520px; }
+.invoice-form__table-wrap .table { min-width: 700px; }
 .invoice-form__add-line {
   width: 100%;
   min-height: 2.75rem;
@@ -953,7 +960,7 @@
   .card__heading { font-size: 1.125rem; }
 
   .form--grid { grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); }
-  .form__input--narrow { max-width: 6.5rem; }
+  .form__input--narrow { max-width: 7rem; min-width: 5rem; }
 
   .table th, .table td { padding: 0.75rem 1rem; font-size: 0.9375rem; }
 
@@ -969,4 +976,81 @@
   .invoice-print__table { font-size: 0.9375rem; }
   .invoice-print__table th, .invoice-print__table td { padding: 0.5rem 0.875rem; }
   .invoice-print__total { font-size: 1.125rem; gap: 2rem; }
+}
+
+/* ============================== */
+/* Typeahead product search       */
+/* ============================== */
+.typeahead-wrap {
+  position: relative;
+}
+.typeahead-results {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 14rem;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.typeahead-results li {
+  border-bottom: 1px solid var(--border);
+}
+.typeahead-results li:last-child {
+  border-bottom: none;
+}
+.typeahead-results__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  color: var(--text);
+  text-align: left;
+  transition: background var(--transition);
+}
+.typeahead-results__item:hover,
+.typeahead-results__item:focus {
+  background: var(--bg-elevated, #f5f5f5);
+  outline: none;
+}
+.typeahead-results__name {
+  font-weight: 500;
+}
+.typeahead-results__meta {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.8125rem;
+}
+.typeahead-results__price {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  white-space: nowrap;
+  margin-left: 1rem;
+}
+
+/* ============================== */
+/* Settings checkbox toggles      */
+/* ============================== */
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9375rem;
+  color: var(--text);
+  padding: 0.375rem 0;
+}
+.settings-toggle input[type="checkbox"] {
+  width: 1.125rem;
+  height: 1.125rem;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
 }

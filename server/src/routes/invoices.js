@@ -88,21 +88,36 @@ router.post('/', async (req, res, next) => {
       let hsnSacCode = null;
       const productId = (rawItems[i].productId ?? rawItems[i].product_id)?.toString().trim();
       let costPrice = 0;
+      let prodCompany = null, prodRamStorage = null, prodImei = null, prodColor = null;
       if (productId) {
-        const { data: product } = await supabase
+        let { data: product, error: pErr } = await supabase
           .from('products')
-          .select('name, price, tax_percent, hsn_sac_code, last_purchase_price')
+          .select('name, price, tax_percent, hsn_sac_code, last_purchase_price, company, ram_storage, imei, color')
           .eq('id', productId)
           .eq('tenant_id', req.tenantId)
           .single();
+        // Fallback if extra columns don't exist yet (migration 00011 not applied)
+        if (pErr && String(pErr.message || '').includes('does not exist')) {
+          ({ data: product } = await supabase
+            .from('products')
+            .select('name, price, tax_percent, hsn_sac_code, last_purchase_price')
+            .eq('id', productId)
+            .eq('tenant_id', req.tenantId)
+            .single());
+        }
         if (product) {
           if (!desc) desc = product.name;
           if (unitPrice === undefined || unitPrice === null) unitPrice = Number(product.price);
           if (product.tax_percent != null) productTaxPercent = Number(product.tax_percent);
           if (product.hsn_sac_code) hsnSacCode = String(product.hsn_sac_code).trim().slice(0, 20) || null;
           costPrice = product.last_purchase_price != null ? Number(product.last_purchase_price) : 0;
+          prodCompany = product.company || null;
+          prodRamStorage = product.ram_storage || null;
+          prodImei = product.imei || null;
+          prodColor = product.color || null;
         }
       }
+      // Extra fields are always pulled from the product (read-only on invoices)
       const taxPercentItem = productTaxPercent ?? tenantTaxPercent;
       const amount = Math.round(v.quantity * unitPrice * 100) / 100;
       const costAmount = Math.round(v.quantity * costPrice * 100) / 100;
@@ -124,36 +139,54 @@ router.post('/', async (req, res, next) => {
         sgst_amount: sgst,
         igst_amount: igst,
         hsn_sac_code: hsnSacCode,
+        company: prodCompany,
+        ram_storage: prodRamStorage,
+        imei: prodImei,
+        color: prodColor,
       });
     }
     const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
     const taxAmount = Math.round(items.reduce((s, i) => s + i.cgst_amount + i.sgst_amount + i.igst_amount, 0) * 100) / 100;
     const total = Math.round((subtotal + taxAmount) * 100) / 100;
     const effectiveTaxPercent = subtotal > 0 ? Math.round(taxAmount / subtotal * 10000) / 100 : tenantTaxPercent;
-    const { invoiceNumber, nextNumber } = await getNextInvoiceNumber(req.tenantId);
+    let { invoiceNumber, nextNumber } = await getNextInvoiceNumber(req.tenantId);
 
-    const { data: invoice, error: invErr } = await supabase
-      .from('invoices')
-      .insert({
-        tenant_id: req.tenantId,
-        customer_id: customerId,
-        invoice_number: invoiceNumber,
-        invoice_date: invoiceDate,
-        status,
-        subtotal,
-        tax_percent: effectiveTaxPercent,
-        tax_amount: taxAmount,
-        total,
-        gst_type: gstType,
-      })
-      .select()
-      .single();
+    // Retry with incremented number if duplicate key (up to 10 attempts)
+    let invoice = null;
+    let invErr = null;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      ({ data: invoice, error: invErr } = await supabase
+        .from('invoices')
+        .insert({
+          tenant_id: req.tenantId,
+          customer_id: customerId,
+          invoice_number: invoiceNumber,
+          invoice_date: invoiceDate,
+          status,
+          subtotal,
+          tax_percent: effectiveTaxPercent,
+          tax_amount: taxAmount,
+          total,
+          gst_type: gstType,
+        })
+        .select()
+        .single());
+      if (!invErr) break;
+      // If duplicate key, bump number and retry
+      if (invErr.code === '23505') {
+        nextNumber += 1;
+        const prefix = invoiceNumber.replace(/\d+$/, '');
+        invoiceNumber = `${prefix}${String(nextNumber).padStart(4, '0')}`;
+        continue;
+      }
+      break; // other error, stop retrying
+    }
     if (invErr) {
       console.error(invErr);
       return res.status(500).json({ error: 'Failed to create invoice' });
     }
 
-    const itemRow = (it, includeCost) => {
+    const itemRow = (it, includeCost, includeExtras) => {
       const row = {
         invoice_id: invoice.id,
         product_id: it.product_id,
@@ -172,12 +205,23 @@ router.post('/', async (req, res, next) => {
         row.cost_price = it.cost_price;
         row.cost_amount = it.cost_amount;
       }
+      if (includeExtras) {
+        row.company = it.company || null;
+        row.ram_storage = it.ram_storage || null;
+        row.imei = it.imei || null;
+        row.color = it.color || null;
+      }
       return row;
     };
     for (const it of items) {
-      let { error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true));
-      if (itemErr && (String(itemErr.message || '').includes('cost_price') || String(itemErr.message || '').includes('cost_amount') || String(itemErr.message || '').includes('does not exist'))) {
-        ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, false)));
+      let { error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true, true));
+      if (itemErr && String(itemErr.message || '').includes('does not exist')) {
+        // Retry without extra product columns (migration 00012 not yet applied)
+        ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true, false)));
+      }
+      if (itemErr && String(itemErr.message || '').includes('does not exist')) {
+        // Retry without cost columns either (migration not yet applied)
+        ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, false, false)));
       }
       if (itemErr) {
         console.error(itemErr);
@@ -417,16 +461,25 @@ router.patch('/:id', async (req, res, next) => {
         let hsnSacCode = null;
         const productId = (rawItems[i].productId ?? rawItems[i].product_id)?.toString().trim();
         let costPrice = 0;
+        let prodCompany = null, prodRamStorage = null, prodImei = null, prodColor = null;
         if (productId) {
-          const { data: product } = await supabase.from('products').select('name, price, tax_percent, hsn_sac_code, last_purchase_price').eq('id', productId).eq('tenant_id', req.tenantId).single();
+          let { data: product, error: pErr } = await supabase.from('products').select('name, price, tax_percent, hsn_sac_code, last_purchase_price, company, ram_storage, imei, color').eq('id', productId).eq('tenant_id', req.tenantId).single();
+          if (pErr && String(pErr.message || '').includes('does not exist')) {
+            ({ data: product } = await supabase.from('products').select('name, price, tax_percent, hsn_sac_code, last_purchase_price').eq('id', productId).eq('tenant_id', req.tenantId).single());
+          }
           if (product) {
             if (!desc) desc = product.name;
             if (unitPrice == null) unitPrice = Number(product.price);
             if (product.tax_percent != null) productTaxPercent = Number(product.tax_percent);
             if (product.hsn_sac_code) hsnSacCode = String(product.hsn_sac_code).trim().slice(0, 20) || null;
             costPrice = product.last_purchase_price != null ? Number(product.last_purchase_price) : 0;
+            prodCompany = product.company || null;
+            prodRamStorage = product.ram_storage || null;
+            prodImei = product.imei || null;
+            prodColor = product.color || null;
           }
         }
+        // Extra fields are always pulled from the product (read-only on invoices)
         const taxPercentItem = productTaxPercent ?? tenantTaxPercent;
         const amount = Math.round(v.quantity * unitPrice * 100) / 100;
         const costAmount = Math.round(v.quantity * costPrice * 100) / 100;
@@ -448,6 +501,10 @@ router.patch('/:id', async (req, res, next) => {
           sgst_amount: sgst,
           igst_amount: igst,
           hsn_sac_code: hsnSacCode,
+          company: prodCompany,
+          ram_storage: prodRamStorage,
+          imei: prodImei,
+          color: prodColor,
         });
       }
       const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
@@ -467,7 +524,7 @@ router.patch('/:id', async (req, res, next) => {
         console.error(updateErr);
         return res.status(500).json({ error: 'Failed to update invoice' });
       }
-      const itemRow = (it, includeCost) => {
+      const itemRow = (it, includeCost, includeExtras) => {
         const row = {
           invoice_id: id,
           product_id: it.product_id,
@@ -486,12 +543,21 @@ router.patch('/:id', async (req, res, next) => {
           row.cost_price = it.cost_price;
           row.cost_amount = it.cost_amount;
         }
+        if (includeExtras) {
+          row.company = it.company || null;
+          row.ram_storage = it.ram_storage || null;
+          row.imei = it.imei || null;
+          row.color = it.color || null;
+        }
         return row;
       };
       for (const it of items) {
-        let { error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true));
-        if (itemErr && (String(itemErr.message || '').includes('cost_price') || String(itemErr.message || '').includes('cost_amount') || String(itemErr.message || '').includes('does not exist'))) {
-          ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, false)));
+        let { error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true, true));
+        if (itemErr && String(itemErr.message || '').includes('does not exist')) {
+          ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, true, false)));
+        }
+        if (itemErr && String(itemErr.message || '').includes('does not exist')) {
+          ({ error: itemErr } = await supabase.from('invoice_items').insert(itemRow(it, false, false)));
         }
         if (itemErr) {
           console.error(itemErr);

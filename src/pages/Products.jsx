@@ -1,6 +1,8 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useBusinessConfig } from '../hooks/useBusinessConfig';
+import { RAM_STORAGE_OPTIONS, columnLabel } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -9,27 +11,55 @@ import ListSkeleton from '../components/ListSkeleton';
 
 const PAGE_SIZE = 20;
 
+// Columns that use a picklist (select) instead of free text
+const PICKLIST_COLS = { ram_storage: RAM_STORAGE_OPTIONS };
+
+// Columns that need type="number"
+const NUMBER_COLS = new Set(['tax_percent']);
+
+function FieldInput({ col, value, onChange, placeholder, className = 'form__input' }) {
+  if (PICKLIST_COLS[col]) {
+    return (
+      <select className={className} value={value} onChange={onChange}>
+        <option value="">{placeholder || columnLabel(col)}</option>
+        {PICKLIST_COLS[col].map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+      </select>
+    );
+  }
+  if (NUMBER_COLS.has(col)) {
+    return <input type="number" step="0.01" min="0" max="100" className={className} placeholder={placeholder || columnLabel(col)} value={value} onChange={onChange} />;
+  }
+  return <input className={className} placeholder={placeholder || columnLabel(col)} value={value} onChange={onChange} maxLength={200} />;
+}
+
 export default function Products() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
+  const config = useBusinessConfig();
+  const productForm = config.productForm; // dynamic: { col_name: true/false, ... }
+
+  // Determine which extra columns are enabled (truthy keys in productForm)
+  const extraCols = useMemo(() =>
+    Object.keys(productForm).filter((k) => productForm[k]),
+    [productForm]
+  );
+
   const [list, setList] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
-  const [unit, setUnit] = useState('');
-  const [hsnSacCode, setHsnSacCode] = useState('');
-  const [taxPercent, setTaxPercent] = useState('');
+  // Dynamic field values for add form: { col_name: value }
+  const [addFields, setAddFields] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
   const [editPrice, setEditPrice] = useState('');
-  const [editUnit, setEditUnit] = useState('');
-  const [editHsnSacCode, setEditHsnSacCode] = useState('');
-  const [editTaxPercent, setEditTaxPercent] = useState('');
+  // Dynamic field values for edit form
+  const [editFields, setEditFields] = useState({});
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -57,23 +87,30 @@ export default function Products() {
     fetchList().finally(() => setLoading(false));
   }, [token, search, page, fetchList]);
 
+  function setAddField(col, val) {
+    setAddFields((prev) => ({ ...prev, [col]: val }));
+  }
+  function setEditField(col, val) {
+    setEditFields((prev) => ({ ...prev, [col]: val }));
+  }
+
   async function handleAdd(e) {
     e.preventDefault();
     setError('');
     setSubmitting(true);
     try {
-      const data = await api.post(token, '/api/products', {
-        name: name.trim(),
-        price: parseFloat(price, 10) || 0,
-        unit: unit.trim() || undefined,
-        hsn_sac_code: hsnSacCode.trim() || undefined,
-        tax_percent: taxPercent !== '' && !Number.isNaN(parseFloat(taxPercent, 10)) ? parseFloat(taxPercent, 10) : undefined,
-      });
-      setName('');
-      setPrice('');
-      setUnit('');
-      setHsnSacCode('');
-      setTaxPercent('');
+      const payload = { name: name.trim(), price: parseFloat(price, 10) || 0 };
+      for (const col of extraCols) {
+        const v = (addFields[col] ?? '').toString().trim();
+        if (col === 'tax_percent') {
+          const n = parseFloat(v);
+          if (v && !Number.isNaN(n)) payload[col] = n;
+        } else {
+          if (v) payload[col] = v;
+        }
+      }
+      const data = await api.post(token, '/api/products', payload);
+      setName(''); setPrice(''); setAddFields({});
       setList((prev) => [data, ...prev]);
       setTotal((t) => t + 1);
       showToast('Product added', 'success');
@@ -88,18 +125,16 @@ export default function Products() {
     setEditing(p);
     setEditName(p.name);
     setEditPrice(String(p.price));
-    setEditUnit(p.unit || '');
-    setEditHsnSacCode(p.hsn_sac_code || '');
-    setEditTaxPercent(p.tax_percent != null ? String(p.tax_percent) : '');
+    const ef = {};
+    for (const col of extraCols) {
+      ef[col] = p[col] != null ? String(p[col]) : '';
+    }
+    setEditFields(ef);
   }
 
   function closeEdit() {
     setEditing(null);
-    setEditName('');
-    setEditPrice('');
-    setEditUnit('');
-    setEditHsnSacCode('');
-    setEditTaxPercent('');
+    setEditName(''); setEditPrice(''); setEditFields({});
   }
 
   async function handleEditSubmit(e) {
@@ -107,13 +142,17 @@ export default function Products() {
     if (!editing) return;
     setEditSubmitting(true);
     try {
-      const data = await api.patch(token, `/api/products/${editing.id}`, {
-        name: editName.trim(),
-        price: parseFloat(editPrice, 10) ?? 0,
-        unit: editUnit.trim() || undefined,
-        hsn_sac_code: editHsnSacCode.trim() || undefined,
-        tax_percent: editTaxPercent !== '' && !Number.isNaN(parseFloat(editTaxPercent, 10)) ? parseFloat(editTaxPercent, 10) : undefined,
-      });
+      const payload = { name: editName.trim(), price: parseFloat(editPrice, 10) ?? 0 };
+      for (const col of extraCols) {
+        const v = (editFields[col] ?? '').toString().trim();
+        if (col === 'tax_percent') {
+          const n = parseFloat(v);
+          payload[col] = (v && !Number.isNaN(n)) ? n : undefined;
+        } else {
+          payload[col] = v || undefined;
+        }
+      }
+      const data = await api.patch(token, `/api/products/${editing.id}`, payload);
       setList((prev) => prev.map((p) => (p.id === data.id ? data : p)));
       closeEdit();
       showToast('Product updated', 'success');
@@ -149,6 +188,13 @@ export default function Products() {
     }
   }
 
+  function formatCellValue(p, col) {
+    const v = p[col];
+    if (v == null || v === '') return '—';
+    if (col === 'tax_percent') return `${v}%`;
+    return String(v);
+  }
+
   return (
     <div className="page">
       <h1 className="page__title">Products</h1>
@@ -182,29 +228,14 @@ export default function Products() {
             onChange={(e) => setPrice(e.target.value)}
             required
           />
-          <input
-            className="form__input"
-            placeholder="Unit (e.g. pc, kg)"
-            value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-          />
-          <input
-            className="form__input"
-            placeholder="HSN/SAC code"
-            value={hsnSacCode}
-            onChange={(e) => setHsnSacCode(e.target.value)}
-            maxLength={20}
-          />
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            max="100"
-            className="form__input"
-            placeholder="Tax % (optional)"
-            value={taxPercent}
-            onChange={(e) => setTaxPercent(e.target.value)}
-          />
+          {extraCols.map((col) => (
+            <FieldInput
+              key={col}
+              col={col}
+              value={addFields[col] ?? ''}
+              onChange={(e) => setAddField(col, e.target.value)}
+            />
+          ))}
           <button type="submit" className="btn btn--primary" disabled={submitting}>
             Add
           </button>
@@ -228,9 +259,7 @@ export default function Products() {
                 <tr>
                   <th>Name</th>
                   <th>Price</th>
-                  <th>Unit</th>
-                  <th>HSN/SAC</th>
-                  <th>Tax %</th>
+                  {extraCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
                   <th></th>
                 </tr>
               </thead>
@@ -239,9 +268,7 @@ export default function Products() {
                   <tr key={p.id}>
                     <td>{p.name}</td>
                     <td>{formatMoney(p.price, tenant)}</td>
-                    <td>{p.unit || '—'}</td>
-                    <td>{p.hsn_sac_code || '—'}</td>
-                    <td>{p.tax_percent != null ? `${p.tax_percent}%` : '—'}</td>
+                    {extraCols.map((col) => <td key={col}>{formatCellValue(p, col)}</td>)}
                     <td>
                       <span className="table-actions">
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(p)}>
@@ -305,37 +332,16 @@ export default function Products() {
                   required
                 />
               </label>
-              <label className="form__label">
-                <span>Unit (e.g. pc, kg)</span>
-                <input
-                  className="form__input"
-                  value={editUnit}
-                  onChange={(e) => setEditUnit(e.target.value)}
-                />
-              </label>
-              <label className="form__label">
-                <span>HSN/SAC code</span>
-                <input
-                  className="form__input"
-                  placeholder="e.g. 998314"
-                  value={editHsnSacCode}
-                  onChange={(e) => setEditHsnSacCode(e.target.value)}
-                  maxLength={20}
-                />
-              </label>
-              <label className="form__label">
-                <span>Tax % (optional, overrides tenant default)</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  className="form__input"
-                  placeholder="Leave empty for default"
-                  value={editTaxPercent}
-                  onChange={(e) => setEditTaxPercent(e.target.value)}
-                />
-              </label>
+              {extraCols.map((col) => (
+                <label key={col} className="form__label">
+                  <span>{columnLabel(col)}</span>
+                  <FieldInput
+                    col={col}
+                    value={editFields[col] ?? ''}
+                    onChange={(e) => setEditField(col, e.target.value)}
+                  />
+                </label>
+              ))}
               <div className="modal__actions">
                 <button type="button" className="btn btn--secondary" onClick={closeEdit}>
                   Cancel

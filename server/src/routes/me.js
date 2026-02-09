@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const router = Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const tenantFields = 'id, name, slug, currency, currency_symbol, gstin, tax_percent, invoice_prefix, invoice_next_number, invoice_header_note, invoice_footer_note, logo_url, invoice_page_size';
+const tenantFields = 'id, name, slug, currency, currency_symbol, gstin, tax_percent, invoice_prefix, invoice_next_number, invoice_header_note, invoice_footer_note, logo_url, invoice_page_size, business_type, feature_config';
 const BUCKET = 'tenant-assets';
 const MAX_SIZE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
@@ -38,6 +38,7 @@ router.get('/', async (req, res, next) => {
         invoice_footer_note: tenant.invoice_footer_note ?? null,
         logo_url: tenant.logo_url ?? null,
         invoice_page_size: tenant.invoice_page_size ?? 'A4',
+        feature_config: tenant.feature_config ?? {},
       } : null,
     });
   } catch (err) {
@@ -78,6 +79,17 @@ router.patch('/', async (req, res, next) => {
       const sz = (body.invoice_page_size ?? 'A4').toString().trim();
       if (sz !== 'A4' && sz !== 'Letter') return res.status(400).json({ error: 'invoice_page_size must be A4 or Letter' });
       updates.invoice_page_size = sz;
+    }
+    if (body.business_type !== undefined) {
+      const v = (body.business_type ?? '').toString().trim();
+      updates.business_type = v || null;
+    }
+    if (body.feature_config !== undefined) {
+      if (body.feature_config && typeof body.feature_config === 'object' && !Array.isArray(body.feature_config)) {
+        updates.feature_config = body.feature_config;
+      } else {
+        updates.feature_config = {};
+      }
     }
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
     const { data: tenant, error } = await supabase
@@ -135,6 +147,44 @@ router.post('/logo', async (req, res, next) => {
     const { data: updated, error: updateErr } = await supabase.from('tenants').update({ logo_url: logoUrl }).eq('id', req.tenantId).select(tenantFields).single();
     if (updateErr) return res.status(500).json({ error: 'Failed to save logo URL' });
     return res.json({ tenant: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Columns that are always present (not toggleable) on each table
+const PRODUCT_SYSTEM_COLS = new Set(['id', 'tenant_id', 'name', 'price', 'created_at', 'updated_at', 'last_purchase_price']);
+const INVOICE_ITEM_SYSTEM_COLS = new Set([
+  'id', 'invoice_id', 'product_id', 'description', 'quantity', 'unit_price', 'amount',
+  'tax_percent', 'gst_type', 'cgst_amount', 'sgst_amount', 'igst_amount', 'hsn_sac_code',
+  'cost_price', 'cost_amount', 'created_at', 'updated_at',
+]);
+
+async function getTableColumns(tableName) {
+  // Primary: use the get_table_columns SQL function (migration 00013)
+  const { data, error } = await supabase.rpc('get_table_columns', { tbl: tableName });
+  if (!error && Array.isArray(data)) {
+    return data.map(r => r.column_name);
+  }
+  // Fallback: select one row from the table and use its keys
+  const { data: sample } = await supabase.from(tableName).select('*').limit(1);
+  if (sample && sample.length > 0) return Object.keys(sample[0]);
+  return [];
+}
+
+/**
+ * GET /api/me/columns — returns toggleable columns for products and invoice_items,
+ * read from the actual database schema.
+ */
+router.get('/columns', async (req, res, next) => {
+  try {
+    const [allProdCols, allInvCols] = await Promise.all([
+      getTableColumns('products'),
+      getTableColumns('invoice_items'),
+    ]);
+    const productColumns = allProdCols.filter(c => !PRODUCT_SYSTEM_COLS.has(c));
+    const invoiceItemColumns = allInvCols.filter(c => !INVOICE_ITEM_SYSTEM_COLS.has(c));
+    return res.json({ productColumns, invoiceItemColumns });
   } catch (err) {
     next(err);
   }

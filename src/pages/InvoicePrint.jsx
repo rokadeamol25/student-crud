@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useBusinessConfig } from '../hooks/useBusinessConfig';
+import { columnLabel } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -16,6 +18,8 @@ export default function InvoicePrint() {
   const navigate = useNavigate();
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
+  const { invoiceLineItems } = useBusinessConfig();
+  const extraInvCols = Object.keys(invoiceLineItems).filter((k) => invoiceLineItems[k]);
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -310,6 +314,7 @@ export default function InvoicePrint() {
             <tr>
               <th>#</th>
               <th>Description</th>
+              {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
               <th>Qty</th>
               <th>Unit price</th>
               <th>Amount</th>
@@ -320,6 +325,7 @@ export default function InvoicePrint() {
               <tr key={row.id || i}>
                 <td>{i + 1}</td>
                 <td>{row.description}</td>
+                {extraInvCols.map((col) => <td key={col}>{row[col] || '—'}</td>)}
                 <td>{Number(row.quantity)}</td>
                 <td>{formatMoney(row.unit_price, tenant)}</td>
                 <td>{formatMoney(row.amount, tenant)}</td>

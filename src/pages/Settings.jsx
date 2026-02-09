@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { columnLabel } from '../config/businessTypes';
 import * as api from '../api/client';
 
 export default function Settings() {
@@ -16,7 +17,38 @@ export default function Settings() {
   const [invoiceHeaderNote, setInvoiceHeaderNote] = useState(tenant?.invoice_header_note ?? '');
   const [invoiceFooterNote, setInvoiceFooterNote] = useState(tenant?.invoice_footer_note ?? '');
   const [invoicePageSize, setInvoicePageSize] = useState(tenant?.invoice_page_size ?? 'A4');
+
+  // Dynamic column lists fetched from the DB schema
+  const [productColumns, setProductColumns] = useState([]);
+  const [invoiceItemColumns, setInvoiceItemColumns] = useState([]);
+
+  // Strip old camelCase keys (showUnit, showImei, etc.) — only keep snake_case DB column names
+  function cleanToggles(obj) {
+    if (!obj || typeof obj !== 'object') return {};
+    const out = {};
+    for (const k of Object.keys(obj)) {
+      if (/^[a-z][a-z0-9_]*$/.test(k)) out[k] = obj[k];
+    }
+    return out;
+  }
+
+  // Dynamic toggle state: column_name → boolean
+  const fc = tenant?.feature_config ?? {};
+  const [prodToggles, setProdToggles] = useState(cleanToggles(fc?.productForm));
+  const [invToggles, setInvToggles] = useState(cleanToggles(fc?.invoiceLineItems));
+  const [searchMethod, setSearchMethod] = useState(fc?.invoiceProductSearch?.method ?? 'dropdown');
   const [logoUploading, setLogoUploading] = useState(false);
+
+  // Fetch available columns from DB on mount
+  useEffect(() => {
+    if (!token) return;
+    api.get(token, '/api/me/columns')
+      .then((res) => {
+        setProductColumns(res.productColumns || []);
+        setInvoiceItemColumns(res.invoiceItemColumns || []);
+      })
+      .catch(() => {}); // graceful if endpoint not available yet
+  }, [token]);
 
   useEffect(() => {
     if (tenant?.name !== undefined) setName(tenant.name ?? '');
@@ -29,7 +61,18 @@ export default function Settings() {
     if (tenant?.invoice_header_note !== undefined) setInvoiceHeaderNote(tenant.invoice_header_note ?? '');
     if (tenant?.invoice_footer_note !== undefined) setInvoiceFooterNote(tenant.invoice_footer_note ?? '');
     if (tenant?.invoice_page_size !== undefined) setInvoicePageSize(tenant.invoice_page_size ?? 'A4');
-  }, [tenant?.name, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size]);
+    const tfc = tenant?.feature_config ?? {};
+    setProdToggles(cleanToggles(tfc?.productForm));
+    setInvToggles(cleanToggles(tfc?.invoiceLineItems));
+    setSearchMethod(tfc?.invoiceProductSearch?.method ?? 'dropdown');
+  }, [tenant?.name, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config]);
+
+  function toggleProd(col) {
+    setProdToggles((prev) => ({ ...prev, [col]: !prev[col] }));
+  }
+  function toggleInv(col) {
+    setInvToggles((prev) => ({ ...prev, [col]: !prev[col] }));
+  }
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -103,6 +146,13 @@ export default function Settings() {
         invoice_header_note: (invoiceHeaderNote ?? '').trim().slice(0, 2000) || undefined,
         invoice_footer_note: (invoiceFooterNote ?? '').trim().slice(0, 2000) || undefined,
         invoice_page_size: (invoicePageSize === 'Letter' ? 'Letter' : 'A4'),
+        feature_config: {
+          productForm: prodToggles,
+          invoiceLineItems: invToggles,
+          invoiceProductSearch: {
+            method: searchMethod,
+          },
+        },
       });
       await refetchMe();
       showToast('Settings updated', 'success');
@@ -137,6 +187,54 @@ export default function Settings() {
               Slug: <code>{tenant.slug}</code> (read-only)
             </p>
           )}
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Product form fields</h3>
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            Choose which fields to show when creating / editing a product. Name and Price are always shown.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {productColumns.length === 0 && (
+              <p className="page__muted" style={{ fontSize: '0.875rem' }}>Loading columns…</p>
+            )}
+            {productColumns.map((col) => (
+              <label key={col} className="settings-toggle">
+                <input type="checkbox" checked={!!prodToggles[col]} onChange={() => toggleProd(col)} />
+                <span>{columnLabel(col)}</span>
+              </label>
+            ))}
+          </div>
+
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Invoice line item columns</h3>
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            Choose which extra columns to display on invoice line items (create, edit, and print). Description, Qty, Unit price, and Amount are always shown.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {invoiceItemColumns.length === 0 && (
+              <p className="page__muted" style={{ fontSize: '0.875rem' }}>Loading columns…</p>
+            )}
+            {invoiceItemColumns.map((col) => (
+              <label key={col} className="settings-toggle">
+                <input type="checkbox" checked={!!invToggles[col]} onChange={() => toggleInv(col)} />
+                <span>{columnLabel(col)}</span>
+              </label>
+            ))}
+          </div>
+
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Invoice product search</h3>
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            How products are selected when adding line items on an invoice.
+          </p>
+          <label className="form__label">
+            <span>Search method</span>
+            <select
+              className="form__input"
+              value={searchMethod}
+              onChange={(e) => setSearchMethod(e.target.value)}
+            >
+              <option value="dropdown">Dropdown (load all products, pick from list)</option>
+              <option value="typeahead">Search-as-you-type (type to search, smaller results)</option>
+            </select>
+          </label>
+
           <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Currency &amp; tax</h3>
           <div className="form form--grid">
             <label className="form__label">
