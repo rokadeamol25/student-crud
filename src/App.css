@@ -596,6 +596,13 @@
   display: flex;
   gap: 0.75rem;
 }
+.invoice-item-card__row .form__label {
+  min-width: 0;
+}
+.invoice-item-card__row .form__input {
+  width: 100%;
+  min-width: 4rem;
+}
 .invoice-item-card__footer {
   display: flex;
   align-items: center;
