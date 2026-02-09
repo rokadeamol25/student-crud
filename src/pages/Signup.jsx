@@ -55,7 +55,7 @@ export default function Signup() {
     <div className="auth-page">
       <div className="auth-card">
         <h1 className="auth-card__title">Create account</h1>
-        <p className="auth-card__subtitle">One account = one shop. Next step: name your shop.</p>
+        <p className="auth-card__subtitle">Next step: name your shop.</p>
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="auth-form__error">{error}</div>}
           <label className="auth-form__label">
