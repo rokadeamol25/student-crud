@@ -2,7 +2,7 @@
  * Auth context: Supabase session + tenant from backend /api/me.
  * Tenant is NEVER taken from client storage alone; we refresh from API when session exists.
  */
-import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import * as api from '../api/client';
 
@@ -14,6 +14,7 @@ export function AuthProvider({ children }) {
   const [tenant, setTenant] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastMeFailCode, setLastMeFailCode] = useState(null);
+  const hadSessionRef = useRef(false);
 
   const fetchMe = useCallback(async (token, isRetry = false) => {
     if (!token) {
@@ -48,6 +49,7 @@ export function AuthProvider({ children }) {
       setSession(s);
       if (s?.access_token) {
         await fetchMe(s.access_token);
+        hadSessionRef.current = true;
       } else {
         setUser(null);
         setTenant(null);
@@ -55,13 +57,18 @@ export function AuthProvider({ children }) {
       setLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, s) => {
+      const hadSession = hadSessionRef.current;
       setSession(s);
       if (s?.access_token) {
-        setLoading(true);
+        // Only show full-screen loading when we didn't have a session (real sign-in).
+        // Tab focus / token refresh re-fires with same session — don't flash the loader.
+        if (!hadSession) setLoading(true);
         await fetchMe(s.access_token);
+        hadSessionRef.current = true;
       } else {
         setUser(null);
         setTenant(null);
+        hadSessionRef.current = false;
       }
       setLoading(false);
     });
