@@ -361,12 +361,20 @@ export default function InvoicePrint() {
                 {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
                 <th className="col-right">Qty</th>
                 <th className="col-right">Unit Price</th>
+                <th className="col-right">Disc</th>
                 <th className="col-right">Amount</th>
               </tr>
             </thead>
             <tbody>
               {items.map((row, i) => {
                 const serials = row.serials || [];
+                const qty = Number(row.quantity) || 0;
+                const unit = Number(row.unit_price) || 0;
+                const base = Math.round(qty * unit * 100) / 100;
+                const netAmount = Number(row.amount) || 0;
+                const storedDisc = Number(row.discount_amount) || 0;
+                const derivedDisc = Math.max(0, Math.round((base - netAmount) * 100) / 100);
+                const discountAmount = storedDisc > 0 ? storedDisc : derivedDisc;
                 return (
                   <tr key={row.id || i}>
                     <td className="col-num">{i + 1}</td>
@@ -385,9 +393,12 @@ export default function InvoicePrint() {
                       </td>
                     )}
                     {extraInvCols.map((col) => <td key={col}>{row[col] || '—'}</td>)}
-                    <td className="col-right">{Number(row.quantity)}</td>
-                    <td className="col-right">{formatMoney(row.unit_price, tenant)}</td>
-                    <td className="col-right">{formatMoney(row.amount, tenant)}</td>
+                    <td className="col-right">{qty}</td>
+                    <td className="col-right">{formatMoney(unit, tenant)}</td>
+                    <td className="col-right">
+                      {discountAmount > 0 ? formatMoney(discountAmount, tenant) : '—'}
+                    </td>
+                    <td className="col-right">{formatMoney(netAmount, tenant)}</td>
                   </tr>
                 );
               })}
@@ -397,17 +408,21 @@ export default function InvoicePrint() {
 
         {/* ── Totals box ── */}
         <div className="invoice-print__totals-box">
+          <div className="invoice-print__total-row">
+            <span>Subtotal</span>
+            <span>{formatMoney((invoice.subtotal ?? invoice.total) + (invoice.discount_total ?? 0), tenant)}</span>
+          </div>
+          {Number(invoice.discount_total) > 0 && (
+            <div className="invoice-print__total-row">
+              <span>Discount</span>
+              <span>-{formatMoney(invoice.discount_total, tenant)}</span>
+            </div>
+          )}
           {invoice.tax_percent != null && Number(invoice.tax_percent) > 0 && (
-            <>
-              <div className="invoice-print__total-row">
-                <span>Subtotal</span>
-                <span>{formatMoney(invoice.subtotal ?? invoice.total, tenant)}</span>
-              </div>
-              <div className="invoice-print__total-row">
-                <span>Tax ({Number(invoice.tax_percent)}%)</span>
-                <span>{formatMoney(invoice.tax_amount ?? 0, tenant)}</span>
-              </div>
-            </>
+            <div className="invoice-print__total-row">
+              <span>Tax ({Number(invoice.tax_percent)}%)</span>
+              <span>{formatMoney(invoice.tax_amount ?? 0, tenant)}</span>
+            </div>
           )}
           <div className="invoice-print__total-row invoice-print__total-row--grand">
             <span>Total</span>

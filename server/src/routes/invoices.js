@@ -149,6 +149,16 @@ async function deductStock(tenantId, invoiceId, items, serialIds = {}) {
   }
 }
 
+function normalizeDiscount(raw) {
+  const type = (raw?.discountType ?? raw?.discount_type ?? 'none').toString().toLowerCase();
+  const valueRaw = raw?.discountValue ?? raw?.discount_value;
+  const value = Number(valueRaw);
+  const safeValue = Number.isNaN(value) || value < 0 ? 0 : value;
+  if (type === 'flat') return { type: 'flat', value: safeValue };
+  if (type === 'percent') return { type: 'percent', value: safeValue };
+  return { type: 'none', value: 0 };
+}
+
 function validateItem(item, index) {
   const desc = (item?.description ?? '').toString().trim();
   if (!desc) return { error: `items[${index}].description is required` };
@@ -160,8 +170,25 @@ function validateItem(item, index) {
   if (unitPrice === undefined || Number.isNaN(unitPrice) || unitPrice < 0) {
     return { error: `items[${index}].unitPrice must be >= 0` };
   }
-  const amount = Math.round(qty * unitPrice * 100) / 100;
-  return { description: desc, quantity: qty, unit_price: unitPrice, amount };
+  const baseAmount = Math.round(qty * unitPrice * 100) / 100;
+  const { type: discountType, value: discountValue } = normalizeDiscount(item);
+  let discountAmount = 0;
+  if (discountType === 'flat') {
+    discountAmount = Math.min(baseAmount, discountValue);
+  } else if (discountType === 'percent') {
+    discountAmount = Math.round(baseAmount * discountValue / 100 * 100) / 100;
+    if (discountAmount > baseAmount) discountAmount = baseAmount;
+  }
+  const amount = baseAmount - discountAmount;
+  return {
+    description: desc,
+    quantity: qty,
+    unit_price: unitPrice,
+    amount,
+    discount_type: discountType === 'none' ? null : discountType,
+    discount_value: discountType === 'none' ? 0 : discountValue,
+    discount_amount: discountAmount,
+  };
 }
 
 router.post('/', async (req, res, next) => {
@@ -243,7 +270,7 @@ router.post('/', async (req, res, next) => {
       }
       // Extra fields are always pulled from the product (read-only on invoices)
       const taxPercentItem = productTaxPercent ?? tenantTaxPercent;
-      const amount = Math.round(v.quantity * unitPrice * 100) / 100;
+      const amount = v.amount;
       const costAmount = Math.round(v.quantity * costPrice * 100) / 100;
       const itemTax = Math.round(amount * taxPercentItem / 100 * 100) / 100;
       const cgst = gstType === 'intra' ? Math.round(itemTax / 2 * 100) / 100 : 0;
@@ -267,9 +294,13 @@ router.post('/', async (req, res, next) => {
         ram_storage: prodRamStorage,
         imei: prodImei,
         color: prodColor,
+        discount_type: v.discount_type,
+        discount_value: v.discount_value,
+        discount_amount: v.discount_amount,
       });
     }
     const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
+    const discountTotal = Math.round(items.reduce((s, i) => s + (i.discount_amount || 0), 0) * 100) / 100;
     const taxAmount = Math.round(items.reduce((s, i) => s + i.cgst_amount + i.sgst_amount + i.igst_amount, 0) * 100) / 100;
     const total = Math.round((subtotal + taxAmount) * 100) / 100;
     const effectiveTaxPercent = subtotal > 0 ? Math.round(taxAmount / subtotal * 10000) / 100 : tenantTaxPercent;
@@ -290,6 +321,7 @@ router.post('/', async (req, res, next) => {
           subtotal,
           tax_percent: effectiveTaxPercent,
           tax_amount: taxAmount,
+          discount_total: discountTotal,
           total,
           gst_type: gstType,
         })

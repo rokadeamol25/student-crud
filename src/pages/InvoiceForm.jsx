@@ -37,7 +37,7 @@ function SerialSelect({ productId, value, onChange, className = '' }) {
   );
 }
 
-const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0, selectedSerialId: '' });
+const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0, discountType: 'none', discountValue: 0, selectedSerialId: '' });
 
 function TrackingBadge({ type }) {
   const t = type || 'quantity';
@@ -59,6 +59,8 @@ function itemFromRow(row) {
     description: row.description || '',
     quantity: Number(row.quantity) || 1,
     unitPrice: Number(row.unit_price) || 0,
+    discountType: row.discount_type || 'none',
+    discountValue: Number(row.discount_value) || 0,
     selectedSerialId: '', // serial picker selection not stored on invoice_items
   };
   for (const key of Object.keys(row)) {
@@ -272,7 +274,30 @@ export default function InvoiceForm() {
     setItems((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : prev));
   }
 
-  const subtotal = items.reduce((sum, it) => sum + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0);
+  function lineNetAmount(it) {
+    const qty = Number(it.quantity) || 0;
+    const unit = Number(it.unitPrice) || 0;
+    const base = Math.round(qty * unit * 100) / 100;
+    const val = Number(it.discountValue) || 0;
+    let disc = 0;
+    if (it.discountType === 'flat') {
+      disc = Math.min(base, Math.max(0, val));
+    } else if (it.discountType === 'percent') {
+      const pct = Math.max(0, val);
+      disc = Math.round(base * pct / 100 * 100) / 100;
+      if (disc > base) disc = base;
+    }
+    return base - disc;
+  }
+
+  const subtotal = items.reduce((sum, it) => sum + lineNetAmount(it), 0);
+  const discountTotal = items.reduce((sum, it) => {
+    const qty = Number(it.quantity) || 0;
+    const unit = Number(it.unitPrice) || 0;
+    const base = Math.round(qty * unit * 100) / 100;
+    const net = lineNetAmount(it);
+    return sum + (base - net);
+  }, 0);
   const taxPercent = tenant?.tax_percent != null ? Number(tenant.tax_percent) : 0;
   const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
   const total = Math.round((subtotal + taxAmount) * 100) / 100;
@@ -293,6 +318,8 @@ export default function InvoiceForm() {
         description: (it.description || '').trim() || 'Item',
         quantity: Number(it.quantity) || 1,
         unitPrice: Number(it.unitPrice) || 0,
+        discountType: it.discountType === 'flat' || it.discountType === 'percent' ? it.discountType : undefined,
+        discountValue: Number(it.discountValue) || 0,
       })),
     };
     if (status === 'sent') {
@@ -518,7 +545,7 @@ export default function InvoiceForm() {
                 {extraInvCols.map((col) => it[col] ? (
                   <div key={col} className="form__label"><span>{columnLabel(col)}</span><span className="form__readonly">{it[col]}</span></div>
                 ) : null)}
-                <div className="invoice-item-card__row">
+              <div className="invoice-item-card__row">
                 <label className="form__label" style={{ flex: 1 }}>
                   <span>Qty</span>
                   <input type="number" min="0.01" step="0.01" className="form__input" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
@@ -528,9 +555,30 @@ export default function InvoiceForm() {
                   <input type="number" min="0" step="0.01" className="form__input" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
                 </label>
               </div>
+              <div className="invoice-item-card__row">
+                <label className="form__label" style={{ flex: 1 }}>
+                  <span>Discount type</span>
+                  <select className="form__input" value={it.discountType || 'none'} onChange={(e) => updateLine(i, 'discountType', e.target.value)}>
+                    <option value="none">No discount</option>
+                    <option value="percent">% off</option>
+                    <option value="flat">Flat</option>
+                  </select>
+                </label>
+                <label className="form__label" style={{ flex: 1 }}>
+                  <span>Discount value</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="form__input"
+                    value={it.discountValue}
+                    onChange={(e) => updateLine(i, 'discountValue', e.target.value)}
+                  />
+                </label>
+              </div>
               <div className="invoice-item-card__footer">
                 <span className="invoice-item-card__amount">
-                  {formatMoney((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), tenant)}
+                  {formatMoney(lineNetAmount(it), tenant)}
                 </span>
                 <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>Remove</button>
               </div>
@@ -551,6 +599,7 @@ export default function InvoiceForm() {
                   {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
                   <th>Qty</th>
                   <th>Unit price</th>
+                  <th>Disc</th>
                   <th>Amount</th>
                   <th></th>
                 </tr>
@@ -586,7 +635,28 @@ export default function InvoiceForm() {
                       <td>
                         <input type="number" min="0" step="0.01" className="form__input form__input--sm form__input--narrow" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
                       </td>
-                      <td>{formatMoney((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), tenant)}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+                          <select
+                            className="form__input form__input--sm form__input--narrow"
+                            value={it.discountType || 'none'}
+                            onChange={(e) => updateLine(i, 'discountType', e.target.value)}
+                          >
+                            <option value="none">None</option>
+                            <option value="percent">% off</option>
+                            <option value="flat">Flat</option>
+                          </select>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="form__input form__input--sm form__input--narrow"
+                            value={it.discountValue}
+                            onChange={(e) => updateLine(i, 'discountValue', e.target.value)}
+                          />
+                        </div>
+                      </td>
+                      <td>{formatMoney(lineNetAmount(it), tenant)}</td>
                       <td>
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => removeLine(i)}>Remove</button>
                       </td>
@@ -600,7 +670,10 @@ export default function InvoiceForm() {
 
         <button type="button" className="btn btn--secondary invoice-form__add-line" onClick={addLine}>Add line</button>
         <div className="invoice-form__totals" style={{ marginTop: '1rem' }}>
-          <p className="invoice-form__total">Subtotal: {formatMoney(subtotal, tenant)}</p>
+          <p className="invoice-form__total">Subtotal: {formatMoney(subtotal + discountTotal, tenant)}</p>
+          {discountTotal > 0 && (
+            <p className="invoice-form__total">Discount: -{formatMoney(discountTotal, tenant)}</p>
+          )}
           {taxPercent > 0 && (
             <p className="invoice-form__total">Tax ({taxPercent}%): {formatMoney(taxAmount, tenant)}</p>
           )}
