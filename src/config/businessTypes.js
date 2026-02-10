@@ -22,6 +22,7 @@ export const DEFAULTS = {
   showRoughBillRef: false, // when true, show rough bill ref field on invoices (internal only; never on print/PDF)
   companyOptions: [], // optional list of company/brand names for product picklist
   colorOptions: [], // optional list of colors for product picklist
+  productTypeOptions: [], // optional list of product types (e.g. Mobile, Accessory)
 };
 
 /**
@@ -37,6 +38,7 @@ const LABEL_OVERRIDES = {
   ram_storage: 'RAM / Storage',
   imei: 'IMEI',
   color: 'Color',
+  product_type: 'Product Type',
 };
 
 export function columnLabel(col) {
@@ -44,6 +46,15 @@ export function columnLabel(col) {
   // fallback: snake_case → Title Case
   return col.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
+
+/** Core columns for the product list (Settings: Product list columns). Order matches table. */
+export const PRODUCT_LIST_CORE_COLUMNS = [
+  { id: 'name', label: 'Name' },
+  { id: 'price', label: 'Selling price' },
+  { id: 'purchase_price', label: 'Purchase price' },
+  { id: 'tracking', label: 'Tracking' },
+  { id: 'stock', label: 'Stock' },
+];
 
 /** Predefined RAM / Storage options for the picklist. Tenants pick from this list. */
 export const RAM_STORAGE_OPTIONS = [
@@ -69,8 +80,8 @@ export const RAM_STORAGE_OPTIONS = [
  */
 export const PRODUCT_COLS_BY_TRACKING_TYPE = {
   quantity: null, // null = show all enabled columns from Settings
-  serial: ['company', 'ram_storage', 'color', 'unit', 'hsn_sac_code', 'tax_percent'],
-  batch: ['unit', 'hsn_sac_code', 'tax_percent', 'sku'],
+  serial: ['company', 'ram_storage', 'color', 'product_type', 'unit', 'hsn_sac_code', 'tax_percent'],
+  batch: ['product_type', 'unit', 'hsn_sac_code', 'tax_percent', 'sku'],
 };
 
 /**

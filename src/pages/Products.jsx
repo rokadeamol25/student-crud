@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useBusinessConfig } from '../hooks/useBusinessConfig';
-import { RAM_STORAGE_OPTIONS, columnLabel, PRODUCT_COLS_BY_TRACKING_TYPE } from '../config/businessTypes';
+import { RAM_STORAGE_OPTIONS, columnLabel, PRODUCT_COLS_BY_TRACKING_TYPE, PRODUCT_LIST_CORE_COLUMNS } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ConfirmDialog from '../components/ConfirmDialog';
 import EmptyState from '../components/EmptyState';
 import ListSkeleton from '../components/ListSkeleton';
+import Pagination from '../components/Pagination';
 
 const PAGE_SIZE = 20;
 
@@ -58,11 +60,24 @@ export default function Products() {
     return enabled.filter((k) => allowed.includes(k));
   }, [productForm, defaultTrackingType]);
 
+  // Columns to show in the product list (from Settings → productListColumns)
+  const productListColumns = tenant?.feature_config?.productListColumns;
+  const listColumns = useMemo(() => {
+    const coreIds = PRODUCT_LIST_CORE_COLUMNS.map((c) => c.id);
+    if (productListColumns && typeof productListColumns === 'object' && Object.keys(productListColumns).length > 0) {
+      const core = coreIds.filter((id) => productListColumns[id]);
+      const extra = extraCols.filter((col) => productListColumns[col]);
+      return [...core, ...extra];
+    }
+    return [...coreIds, ...extraCols];
+  }, [productListColumns, extraCols]);
+
   const picklistCols = useMemo(() => ({
     ...PICKLIST_COLS,
     ...(config.companyOptions?.length ? { company: config.companyOptions } : {}),
     ...(config.colorOptions?.length ? { color: config.colorOptions } : {}),
-  }), [config.companyOptions, config.colorOptions]);
+    ...(config.productTypeOptions?.length ? { product_type: config.productTypeOptions } : {}),
+  }), [config.companyOptions, config.colorOptions, config.productTypeOptions]);
 
   const [list, setList] = useState([]);
   const [total, setTotal] = useState(0);
@@ -360,42 +375,49 @@ export default function Products() {
             onAction={() => addFormRef.current?.scrollIntoView?.({ behavior: 'smooth' })}
           />
         ) : (
-          <div className="table-wrap">
+          <>
+          <div className="table-wrap products-list-table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Selling price</th>
-                  <th>Purchase price</th>
-                  <th>Tracking</th>
-                  <th>Stock</th>
-                  {extraCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
+                  {listColumns.map((col) => (
+                    <th key={col}>
+                      {PRODUCT_LIST_CORE_COLUMNS.find((c) => c.id === col)?.label ?? columnLabel(col)}
+                    </th>
+                  ))}
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {list.map((p) => (
                   <tr key={p.id}>
-                    <td>{p.name}</td>
-                    <td>{formatMoney(p.price, tenant)}</td>
-                    <td>{p.purchase_price != null ? formatMoney(p.purchase_price, tenant) : '—'}</td>
-                    <td><TrackingBadge type={p.tracking_type || 'quantity'} /></td>
-                    <td>
-                      {stockDisplay(p)}
-                      {(p.tracking_type === 'serial' || p.tracking_type === 'batch') && Number(p.stock) > 0 && (
-                        <button
-                          type="button"
-                          className="btn btn--ghost btn--sm"
-                          style={{ marginLeft: '0.25rem', fontSize: '0.75rem', padding: '0.125rem 0.375rem' }}
-                          onClick={() => openView(p)}
-                        >
-                          View
-                        </button>
-                      )}
-                    </td>
-                    {extraCols.map((col) => <td key={col}>{formatCellValue(p, col)}</td>)}
+                    {listColumns.map((col) => {
+                      if (col === 'name') return <td key={col}>{p.name}</td>;
+                      if (col === 'price') return <td key={col}>{formatMoney(p.price, tenant)}</td>;
+                      if (col === 'purchase_price') return <td key={col}>{p.purchase_price != null ? formatMoney(p.purchase_price, tenant) : '—'}</td>;
+                      if (col === 'tracking') return <td key={col}><TrackingBadge type={p.tracking_type || 'quantity'} /></td>;
+                      if (col === 'stock') {
+                        return (
+                          <td key={col}>
+                            {stockDisplay(p)}
+                            {(p.tracking_type === 'serial' || p.tracking_type === 'batch') && Number(p.stock) > 0 && (
+                              <button
+                                type="button"
+                                className="btn btn--ghost btn--sm"
+                                style={{ marginLeft: '0.25rem', fontSize: '0.75rem', padding: '0.125rem 0.375rem' }}
+                                onClick={() => openView(p)}
+                              >
+                                View
+                              </button>
+                            )}
+                          </td>
+                        );
+                      }
+                      return <td key={col}>{formatCellValue(p, col)}</td>;
+                    })}
                     <td>
                       <span className="table-actions">
+                        <Link to={`/products/${p.id}`} className="btn btn--ghost btn--sm">View</Link>
                         <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(p)}>
                           Edit
                         </button>
@@ -409,13 +431,16 @@ export default function Products() {
               </tbody>
             </table>
           </div>
-        )}
-        {total > PAGE_SIZE && (
-          <div className="pagination" style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <button type="button" className="btn btn--ghost btn--sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>Previous</button>
-            <span className="page__muted">{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}</span>
-            <button type="button" className="btn btn--ghost btn--sm" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage((p) => p + 1)}>Next</button>
-          </div>
+          {total > 0 && (
+            <Pagination
+              page={page}
+              totalItems={total}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+              ariaLabel="Products"
+            />
+          )}
+          </>
         )}
       </section>
 

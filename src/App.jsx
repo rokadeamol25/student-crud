@@ -10,6 +10,7 @@ import Signup from './pages/Signup';
 import SignupComplete from './pages/SignupComplete';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
+import ProductDetail from './pages/ProductDetail';
 import Customers from './pages/Customers';
 import Suppliers from './pages/Suppliers';
 import SupplierLedger from './pages/SupplierLedger';
@@ -66,6 +67,7 @@ export default function App() {
           >
             <Route index element={<Dashboard />} />
             <Route path="products" element={<Products />} />
+            <Route path="products/:id" element={<ProductDetail />} />
             <Route path="customers" element={<Customers />} />
             <Route path="suppliers" element={<Suppliers />} />
             <Route path="suppliers/:id/ledger" element={<SupplierLedger />} />

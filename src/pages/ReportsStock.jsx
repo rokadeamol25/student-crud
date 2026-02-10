@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useBusinessConfig } from '../hooks/useBusinessConfig';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 
@@ -9,22 +10,27 @@ const STOCK_LIMIT = 1000;
 
 export default function ReportsStock() {
   const { token, tenant } = useAuth();
+  const { productTypeOptions } = useBusinessConfig();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [productTypeFilter, setProductTypeFilter] = useState('');
 
   const fetchStock = useCallback(() => {
     if (!token) return;
     setLoading(true);
     setError('');
-    api.get(token, `/api/products?limit=${STOCK_LIMIT}`)
+    const params = new URLSearchParams();
+    params.set('limit', String(STOCK_LIMIT));
+    if (productTypeFilter) params.set('product_type', productTypeFilter);
+    api.get(token, `/api/products?${params.toString()}`)
       .then((res) => {
         const data = Array.isArray(res) ? res : (res?.data ?? []);
         setProducts(data);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, productTypeFilter]);
 
   useEffect(() => {
     fetchStock();
@@ -52,12 +58,29 @@ export default function ReportsStock() {
 
   return (
     <div className="page">
-      <div className="page__toolbar" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+      <div className="page__toolbar" style={{ marginBottom: '1rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' }}>
         <Link to="/reports" className="btn btn--ghost btn--sm">← Reports</Link>
+        {productTypeOptions?.length > 0 && (
+          <select
+            className="form__input page__filter"
+            value={productTypeFilter}
+            onChange={(e) => setProductTypeFilter(e.target.value)}
+            aria-label="Filter by product type"
+            style={{ minWidth: '10rem' }}
+          >
+            <option value="">All product types</option>
+            {productTypeOptions.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        )}
         <button type="button" className="btn btn--secondary btn--sm" onClick={fetchStock}>Refresh</button>
       </div>
       <h1 className="page__title">Stock report</h1>
-      <p className="page__subtitle">Current inventory by product. Value uses purchase / last purchase price.</p>
+      <p className="page__subtitle">
+        Current inventory by product. Value uses purchase / last purchase price.
+        {productTypeOptions?.length > 0 && ' Use the filter above to show a specific product type (from Settings).'}
+      </p>
 
       {error && <div className="page__error">{error}</div>}
 
@@ -85,6 +108,7 @@ export default function ReportsStock() {
               <thead>
                 <tr>
                   <th>Product</th>
+                  {productTypeOptions?.length > 0 && <th>Product type</th>}
                   <th>SKU</th>
                   <th>Company</th>
                   <th>Tracking</th>
@@ -103,6 +127,7 @@ export default function ReportsStock() {
                   return (
                     <tr key={p.id}>
                       <td>{p.name || '—'}</td>
+                      {productTypeOptions?.length > 0 && <td>{(p.product_type || '').trim() || '—'}</td>}
                       <td>{(p.sku || '').trim() || '—'}</td>
                       <td>{(p.company || '').trim() || '—'}</td>
                       <td>{TRACKING_LABELS[p.tracking_type] || p.tracking_type || '—'}</td>

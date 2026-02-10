@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { columnLabel } from '../config/businessTypes';
+import { columnLabel, PRODUCT_LIST_CORE_COLUMNS } from '../config/businessTypes';
 import * as api from '../api/client';
 
 // Default suggested options when none saved (7–8 brands, main mobile colors)
@@ -42,12 +42,14 @@ export default function Settings() {
   const fc = tenant?.feature_config ?? {};
   const [prodToggles, setProdToggles] = useState(cleanToggles(fc?.productForm));
   const [invToggles, setInvToggles] = useState(cleanToggles(fc?.invoiceLineItems));
+  const [productListToggles, setProductListToggles] = useState(() => cleanToggles(fc?.productListColumns));
   const [searchMethod, setSearchMethod] = useState(fc?.invoiceProductSearch?.method ?? 'dropdown');
   const [customerSupplierSearchMethod, setCustomerSupplierSearchMethod] = useState(fc?.customerSupplierSearch?.method ?? 'dropdown');
   const [defaultTrackingType, setDefaultTrackingType] = useState(fc?.defaultTrackingType ?? 'quantity');
   const [showRoughBillRef, setShowRoughBillRef] = useState(!!fc?.showRoughBillRef);
   const [companyOptionsText, setCompanyOptionsText] = useState(Array.isArray(fc?.companyOptions) ? fc.companyOptions.filter(Boolean).join('\n') : '');
   const [colorOptionsText, setColorOptionsText] = useState(Array.isArray(fc?.colorOptions) ? fc.colorOptions.filter(Boolean).join('\n') : '');
+  const [productTypeOptionsText, setProductTypeOptionsText] = useState(Array.isArray(fc?.productTypeOptions) ? fc.productTypeOptions.filter(Boolean).join('\n') : '');
   const [logoUploading, setLogoUploading] = useState(false);
 
   // Fetch available columns from DB on mount
@@ -77,19 +79,31 @@ export default function Settings() {
     const tfc = tenant?.feature_config ?? {};
     setProdToggles(cleanToggles(tfc?.productForm));
     setInvToggles(cleanToggles(tfc?.invoiceLineItems));
+    const listCols = cleanToggles(tfc?.productListColumns);
+    if (tfc?.productListColumns != null && typeof tfc.productListColumns === 'object' && Object.keys(listCols).length > 0) {
+      setProductListToggles(listCols);
+    } else {
+      const coreDefaults = PRODUCT_LIST_CORE_COLUMNS.reduce((o, { id }) => ({ ...o, [id]: true }), {});
+      const extraDefaults = (productColumns || []).reduce((o, col) => ({ ...o, [col]: tfc?.productForm?.[col] ?? true }), {});
+      setProductListToggles({ ...coreDefaults, ...extraDefaults });
+    }
     setSearchMethod(tfc?.invoiceProductSearch?.method ?? 'dropdown');
     setCustomerSupplierSearchMethod(tfc?.customerSupplierSearch?.method ?? 'dropdown');
     setDefaultTrackingType(tfc?.defaultTrackingType ?? 'quantity');
     setShowRoughBillRef(!!tfc?.showRoughBillRef);
     setCompanyOptionsText(Array.isArray(tfc?.companyOptions) ? tfc.companyOptions.filter(Boolean).join('\n') : '');
     setColorOptionsText(Array.isArray(tfc?.colorOptions) ? tfc.colorOptions.filter(Boolean).join('\n') : '');
-  }, [tenant?.name, tenant?.address, tenant?.phone, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config]);
+    setProductTypeOptionsText(Array.isArray(tfc?.productTypeOptions) ? tfc.productTypeOptions.filter(Boolean).join('\n') : '');
+  }, [tenant?.name, tenant?.address, tenant?.phone, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config, productColumns]);
 
   function toggleProd(col) {
     setProdToggles((prev) => ({ ...prev, [col]: !prev[col] }));
   }
   function toggleInv(col) {
     setInvToggles((prev) => ({ ...prev, [col]: !prev[col] }));
+  }
+  function toggleProductList(col) {
+    setProductListToggles((prev) => ({ ...prev, [col]: !prev[col] }));
   }
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -153,6 +167,11 @@ export default function Settings() {
         setError('Next invoice number must be at least 1');
         return;
       }
+      const listColsOn = Object.keys(productListToggles).filter((k) => productListToggles[k]);
+      if (listColsOn.length === 0) {
+        setError('Select at least one column to display in the Product list');
+        return;
+      }
       await api.patch(token, '/api/me', {
         name: (name ?? '').trim(),
         address: (address ?? '').trim() || undefined,
@@ -168,6 +187,7 @@ export default function Settings() {
         invoice_page_size: (invoicePageSize === 'Letter' ? 'Letter' : 'A4'),
           feature_config: {
           productForm: prodToggles,
+          productListColumns: productListToggles,
           invoiceLineItems: invToggles,
           invoiceProductSearch: {
             method: searchMethod,
@@ -179,6 +199,7 @@ export default function Settings() {
           showRoughBillRef: showRoughBillRef,
           companyOptions: (companyOptionsText || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean),
           colorOptions: (colorOptionsText || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean),
+          productTypeOptions: (productTypeOptionsText || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean),
         },
       });
       await refetchMe();
@@ -264,6 +285,25 @@ export default function Settings() {
             ))}
           </div>
 
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Product list columns</h3>
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            Choose which columns to show in the Products table. At least one column is required.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {PRODUCT_LIST_CORE_COLUMNS.map(({ id, label }) => (
+              <label key={id} className="settings-toggle">
+                <input type="checkbox" checked={!!productListToggles[id]} onChange={() => toggleProductList(id)} />
+                <span>{label}</span>
+              </label>
+            ))}
+            {productColumns.map((col) => (
+              <label key={col} className="settings-toggle">
+                <input type="checkbox" checked={!!productListToggles[col]} onChange={() => toggleProductList(col)} />
+                <span>{columnLabel(col)}</span>
+              </label>
+            ))}
+          </div>
+
           <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Invoice line item columns</h3>
           <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
             Choose which extra columns to display on invoice line items (create, edit, and print). Description, Qty, Unit price, and Amount are always shown.
@@ -321,9 +361,9 @@ export default function Settings() {
             <span>Show rough bill reference field on invoices</span>
           </label>
 
-          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Company / brand &amp; color (product picklists)</h3>
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Company / brand, color &amp; product type (picklists)</h3>
           <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-            Optional lists used as dropdown options when creating products. One option per line or comma-separated. Leave empty for free text.
+            Optional lists used as dropdown options when creating products. One option per line or comma-separated. Enable &quot;Product Type&quot; in Product form fields above to use product types.
           </p>
           <div className="form form--grid">
             <label className="form__label">
@@ -344,6 +384,16 @@ export default function Settings() {
                 placeholder="e.g. Black, White, Blue"
                 value={colorOptionsText}
                 onChange={(e) => setColorOptionsText(e.target.value)}
+              />
+            </label>
+            <label className="form__label">
+              <span>Product type options</span>
+              <textarea
+                className="form__input"
+                rows={3}
+                placeholder="e.g. Mobile, Accessory, SIM, Repair"
+                value={productTypeOptionsText}
+                onChange={(e) => setProductTypeOptionsText(e.target.value)}
               />
             </label>
           </div>

@@ -8,6 +8,7 @@ import { formatMoney } from '../lib/format';
 import ConfirmDialog from '../components/ConfirmDialog';
 import EmptyState from '../components/EmptyState';
 import InvoiceListSkeleton from '../components/InvoiceListSkeleton';
+import Pagination from '../components/Pagination';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All' },
@@ -327,18 +328,14 @@ export default function Invoices() {
                 </tbody>
               </table>
             </div>
-            {total > PAGE_SIZE && (
-              <div className="pagination" style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <button type="button" className="btn btn--ghost btn--sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
-                  Previous
-                </button>
-                <span className="page__muted">
-                  {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total}
-                </span>
-                <button type="button" className="btn btn--ghost btn--sm" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage((p) => p + 1)}>
-                  Next
-                </button>
-              </div>
+            {total > 0 && (
+              <Pagination
+                page={page}
+                totalItems={total}
+                pageSize={PAGE_SIZE}
+                onPageChange={setPage}
+                ariaLabel="Invoices"
+              />
             )}
           </>
         )}

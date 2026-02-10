@@ -36,7 +36,8 @@ function validateCreate(body) {
   const ramStorage = (body?.ram_storage ?? '').toString().trim().slice(0, 100) || null;
   const imei = (body?.imei ?? '').toString().trim().slice(0, 50) || null;
   const color = (body?.color ?? '').toString().trim().slice(0, 100) || null;
-  return { name, price, purchase_price: purchasePrice, unit, sku, tracking_type: trackingType, hsn_sac_code: hsnSacCode, tax_percent: taxPercent, company, ram_storage: ramStorage, imei, color };
+  const productType = (body?.product_type ?? '').toString().trim().slice(0, 100) || null;
+  return { name, price, purchase_price: purchasePrice, unit, sku, tracking_type: trackingType, hsn_sac_code: hsnSacCode, tax_percent: taxPercent, company, ram_storage: ramStorage, imei, color, product_type: productType };
 }
 
 router.post('/', async (req, res, next) => {
@@ -58,6 +59,7 @@ router.post('/', async (req, res, next) => {
       ram_storage: validated.ram_storage,
       imei: validated.imei,
       color: validated.color,
+      product_type: validated.product_type,
     };
     if (validated.purchase_price !== null) row.purchase_price = validated.purchase_price;
     const { data, error } = await supabase
@@ -94,6 +96,10 @@ router.get('/', async (req, res, next) => {
     const trackingFilter = (req.query?.tracking_type ?? '').toString().trim();
     if (trackingFilter && VALID_TRACKING.includes(trackingFilter)) {
       q = q.eq('tracking_type', trackingFilter);
+    }
+    const productTypeFilter = (req.query?.product_type ?? '').toString().trim();
+    if (productTypeFilter) {
+      q = q.eq('product_type', productTypeFilter);
     }
     const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 500);
     const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
@@ -177,6 +183,7 @@ router.patch('/:id', async (req, res, next) => {
     if (body.ram_storage !== undefined) updates.ram_storage = (body.ram_storage ?? '').toString().trim().slice(0, 100) || null;
     if (body.imei !== undefined) updates.imei = (body.imei ?? '').toString().trim().slice(0, 50) || null;
     if (body.color !== undefined) updates.color = (body.color ?? '').toString().trim().slice(0, 100) || null;
+    if (body.product_type !== undefined) updates.product_type = (body.product_type ?? '').toString().trim().slice(0, 100) || null;
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
     updates.updated_at = new Date().toISOString();
     const { data, error } = await supabase

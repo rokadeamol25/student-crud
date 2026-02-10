@@ -62,6 +62,10 @@ export default async function handler(req, res) {
           const p = Number(body.tax_percent);
           updates.tax_percent = (Number.isNaN(p) || p < 0 || p > 100) ? null : p;
         }
+        if (body.company !== undefined) updates.company = (body.company ?? '').toString().trim().slice(0, 200) || null;
+        if (body.ram_storage !== undefined) updates.ram_storage = (body.ram_storage ?? '').toString().trim().slice(0, 100) || null;
+        if (body.color !== undefined) updates.color = (body.color ?? '').toString().trim().slice(0, 100) || null;
+        if (body.product_type !== undefined) updates.product_type = (body.product_type ?? '').toString().trim().slice(0, 100) || null;
         if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'No fields to update' });
         const { data, error } = await supabase.from('products').update(updates).eq('id', id).eq('tenant_id', tenantId).select().single();
         if (error) {
@@ -98,14 +102,10 @@ export default async function handler(req, res) {
       const taxPercent = body.tax_percent !== undefined && body.tax_percent !== null
         ? (Number(body.tax_percent) >= 0 && Number(body.tax_percent) <= 100 ? Number(body.tax_percent) : null)
         : null;
-      const { data, error } = await supabase.from('products').insert({
-        tenant_id: tenantId,
-        name,
-        price,
-        unit,
-        hsn_sac_code: hsnSacCode,
-        tax_percent: taxPercent,
-      }).select().single();
+      const productType = (body.product_type ?? '').toString().trim().slice(0, 100) || null;
+      const insertRow = { tenant_id: tenantId, name, price, unit, hsn_sac_code: hsnSacCode, tax_percent: taxPercent };
+      if (productType) insertRow.product_type = productType;
+      const { data, error } = await supabase.from('products').insert(insertRow).select().single();
       if (error) {
         console.error(error);
         return res.status(500).json({ error: 'Failed to create product' });
@@ -117,6 +117,8 @@ export default async function handler(req, res) {
       let q = supabase.from('products').select('*', { count: 'exact' }).eq('tenant_id', tenantId).order('name');
       const search = (req.query?.q ?? '').toString().trim();
       if (search) q = q.ilike('name', `%${search}%`);
+      const productTypeFilter = (req.query?.product_type ?? '').toString().trim();
+      if (productTypeFilter) q = q.eq('product_type', productTypeFilter);
       const limit = Math.min(Math.max(0, parseInt(req.query?.limit, 10) || 50), 100);
       const offset = Math.max(0, parseInt(req.query?.offset, 10) || 0);
       q = q.range(offset, offset + limit - 1);
