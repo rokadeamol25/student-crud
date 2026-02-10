@@ -88,8 +88,9 @@ export default function Reports() {
     <div className="page">
       <h1 className="page__title">Reports</h1>
       <p className="page__subtitle">Sales, products, customers, tax, and revenue trend.</p>
-      <p style={{ marginBottom: '1rem' }}>
+      <p style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         <Link to="/reports/pnl" className="btn btn--secondary btn--sm">P&L Summary</Link>
+        <Link to="/reports/stock" className="btn btn--secondary btn--sm">Stock report</Link>
       </p>
 
       <div className="page__toolbar reports-toolbar">

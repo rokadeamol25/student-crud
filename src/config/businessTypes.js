@@ -20,6 +20,8 @@ export const DEFAULTS = {
     method: 'dropdown', // 'dropdown' = picklist; 'typeahead' = search by name
   },
   showRoughBillRef: false, // when true, show rough bill ref field on invoices (internal only; never on print/PDF)
+  companyOptions: [], // optional list of company/brand names for product picklist
+  colorOptions: [], // optional list of colors for product picklist
 };
 
 /**

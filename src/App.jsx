@@ -23,6 +23,7 @@ import InvoicePrint from './pages/InvoicePrint';
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import ReportsPnl from './pages/ReportsPnl';
+import ReportsStock from './pages/ReportsStock';
 import SessionExpiredHandler from './components/SessionExpiredHandler';
 import './App.css';
 
@@ -78,6 +79,7 @@ export default function App() {
             <Route path="invoices/:id/print" element={<InvoicePrint />} />
             <Route path="reports" element={<Reports />} />
             <Route path="reports/pnl" element={<ReportsPnl />} />
+            <Route path="reports/stock" element={<ReportsStock />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

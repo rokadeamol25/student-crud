@@ -4,6 +4,10 @@ import { useToast } from '../contexts/ToastContext';
 import { columnLabel } from '../config/businessTypes';
 import * as api from '../api/client';
 
+// Default suggested options when none saved (7–8 brands, main mobile colors)
+const DEFAULT_COMPANY_OPTIONS = 'Samsung\nApple\nXiaomi\nOnePlus\nOppo\nVivo\nRealme\nMotorola';
+const DEFAULT_COLOR_OPTIONS = 'Black\nWhite\nBlue\nRed\nGreen\nGold\nGrey\nPurple';
+
 export default function Settings() {
   const { token, tenant, refetchMe } = useAuth();
   const { showToast } = useToast();
@@ -42,6 +46,8 @@ export default function Settings() {
   const [customerSupplierSearchMethod, setCustomerSupplierSearchMethod] = useState(fc?.customerSupplierSearch?.method ?? 'dropdown');
   const [defaultTrackingType, setDefaultTrackingType] = useState(fc?.defaultTrackingType ?? 'quantity');
   const [showRoughBillRef, setShowRoughBillRef] = useState(!!fc?.showRoughBillRef);
+  const [companyOptionsText, setCompanyOptionsText] = useState(Array.isArray(fc?.companyOptions) ? fc.companyOptions.filter(Boolean).join('\n') : '');
+  const [colorOptionsText, setColorOptionsText] = useState(Array.isArray(fc?.colorOptions) ? fc.colorOptions.filter(Boolean).join('\n') : '');
   const [logoUploading, setLogoUploading] = useState(false);
 
   // Fetch available columns from DB on mount
@@ -75,6 +81,8 @@ export default function Settings() {
     setCustomerSupplierSearchMethod(tfc?.customerSupplierSearch?.method ?? 'dropdown');
     setDefaultTrackingType(tfc?.defaultTrackingType ?? 'quantity');
     setShowRoughBillRef(!!tfc?.showRoughBillRef);
+    setCompanyOptionsText(Array.isArray(tfc?.companyOptions) ? tfc.companyOptions.filter(Boolean).join('\n') : '');
+    setColorOptionsText(Array.isArray(tfc?.colorOptions) ? tfc.colorOptions.filter(Boolean).join('\n') : '');
   }, [tenant?.name, tenant?.address, tenant?.phone, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config]);
 
   function toggleProd(col) {
@@ -169,6 +177,8 @@ export default function Settings() {
           },
           defaultTrackingType,
           showRoughBillRef: showRoughBillRef,
+          companyOptions: (companyOptionsText || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean),
+          colorOptions: (colorOptionsText || '').split(/[\n,]+/).map((s) => s.trim()).filter(Boolean),
         },
       });
       await refetchMe();
@@ -310,6 +320,33 @@ export default function Settings() {
             <input type="checkbox" checked={!!showRoughBillRef} onChange={(e) => setShowRoughBillRef(e.target.checked)} />
             <span>Show rough bill reference field on invoices</span>
           </label>
+
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Company / brand &amp; color (product picklists)</h3>
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            Optional lists used as dropdown options when creating products. One option per line or comma-separated. Leave empty for free text.
+          </p>
+          <div className="form form--grid">
+            <label className="form__label">
+              <span>Company / brand options</span>
+              <textarea
+                className="form__input"
+                rows={3}
+                placeholder="e.g. Samsung, Apple, Xiaomi"
+                value={companyOptionsText}
+                onChange={(e) => setCompanyOptionsText(e.target.value)}
+              />
+            </label>
+            <label className="form__label">
+              <span>Color options</span>
+              <textarea
+                className="form__input"
+                rows={3}
+                placeholder="e.g. Black, White, Blue"
+                value={colorOptionsText}
+                onChange={(e) => setColorOptionsText(e.target.value)}
+              />
+            </label>
+          </div>
 
           <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Currency &amp; tax</h3>
           <div className="form form--grid">

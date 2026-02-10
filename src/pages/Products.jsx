@@ -16,12 +16,13 @@ const PICKLIST_COLS = { ram_storage: RAM_STORAGE_OPTIONS };
 // Columns that need type="number"
 const NUMBER_COLS = new Set(['tax_percent']);
 
-function FieldInput({ col, value, onChange, placeholder, className = 'form__input' }) {
-  if (PICKLIST_COLS[col]) {
+function FieldInput({ col, value, onChange, placeholder, className = 'form__input', picklistCols }) {
+  const options = (picklistCols || PICKLIST_COLS)[col];
+  if (options && options.length) {
     return (
       <select className={className} value={value} onChange={onChange}>
         <option value="">{placeholder || columnLabel(col)}</option>
-        {PICKLIST_COLS[col].map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+        {options.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
       </select>
     );
   }
@@ -56,6 +57,12 @@ export default function Products() {
     if (!allowed) return enabled; // quantity: show all enabled
     return enabled.filter((k) => allowed.includes(k));
   }, [productForm, defaultTrackingType]);
+
+  const picklistCols = useMemo(() => ({
+    ...PICKLIST_COLS,
+    ...(config.companyOptions?.length ? { company: config.companyOptions } : {}),
+    ...(config.colorOptions?.length ? { color: config.colorOptions } : {}),
+  }), [config.companyOptions, config.colorOptions]);
 
   const [list, setList] = useState([]);
   const [total, setTotal] = useState(0);
@@ -320,6 +327,7 @@ export default function Products() {
               col={col}
               value={addFields[col] ?? ''}
               onChange={(e) => setAddField(col, e.target.value)}
+              picklistCols={picklistCols}
             />
           ))}
           <button type="submit" className="btn btn--primary" disabled={submitting}>
@@ -448,7 +456,7 @@ export default function Products() {
               {extraCols.map((col) => (
                 <label key={col} className="form__label">
                   <span>{columnLabel(col)}</span>
-                  <FieldInput col={col} value={editFields[col] ?? ''} onChange={(e) => setEditField(col, e.target.value)} />
+                  <FieldInput col={col} value={editFields[col] ?? ''} onChange={(e) => setEditField(col, e.target.value)} picklistCols={picklistCols} />
                 </label>
               ))}
               <div className="modal__actions">
