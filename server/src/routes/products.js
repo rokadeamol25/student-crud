@@ -18,6 +18,13 @@ function validateCreate(body) {
   if (price === undefined || price === null || Number.isNaN(price) || price < 0) {
     return { error: 'price is required and must be >= 0' };
   }
+  const purchasePriceRaw = body?.purchase_price;
+  const purchasePrice = (purchasePriceRaw === undefined || purchasePriceRaw === null || purchasePriceRaw === '')
+    ? null
+    : (Number(purchasePriceRaw));
+  if (purchasePrice !== null && (Number.isNaN(purchasePrice) || purchasePrice < 0)) {
+    return { error: 'purchase_price must be >= 0 when provided' };
+  }
   const unit = (body?.unit ?? '').toString().trim().slice(0, 50) || null;
   const sku = (body?.sku ?? '').toString().trim().slice(0, 100) || null;
   const trackingType = (body?.tracking_type ?? 'quantity').toString().toLowerCase();
@@ -29,7 +36,7 @@ function validateCreate(body) {
   const ramStorage = (body?.ram_storage ?? '').toString().trim().slice(0, 100) || null;
   const imei = (body?.imei ?? '').toString().trim().slice(0, 50) || null;
   const color = (body?.color ?? '').toString().trim().slice(0, 100) || null;
-  return { name, price, unit, sku, tracking_type: trackingType, hsn_sac_code: hsnSacCode, tax_percent: taxPercent, company, ram_storage: ramStorage, imei, color };
+  return { name, price, purchase_price: purchasePrice, unit, sku, tracking_type: trackingType, hsn_sac_code: hsnSacCode, tax_percent: taxPercent, company, ram_storage: ramStorage, imei, color };
 }
 
 router.post('/', async (req, res, next) => {
@@ -38,22 +45,24 @@ router.post('/', async (req, res, next) => {
     if (validated.error) {
       return res.status(400).json({ error: validated.error });
     }
+    const row = {
+      tenant_id: req.tenantId,
+      name: validated.name,
+      price: validated.price,
+      unit: validated.unit,
+      sku: validated.sku,
+      tracking_type: validated.tracking_type,
+      hsn_sac_code: validated.hsn_sac_code,
+      tax_percent: validated.tax_percent,
+      company: validated.company,
+      ram_storage: validated.ram_storage,
+      imei: validated.imei,
+      color: validated.color,
+    };
+    if (validated.purchase_price !== null) row.purchase_price = validated.purchase_price;
     const { data, error } = await supabase
       .from('products')
-      .insert({
-        tenant_id: req.tenantId,
-        name: validated.name,
-        price: validated.price,
-        unit: validated.unit,
-        sku: validated.sku,
-        tracking_type: validated.tracking_type,
-        hsn_sac_code: validated.hsn_sac_code,
-        tax_percent: validated.tax_percent,
-        company: validated.company,
-        ram_storage: validated.ram_storage,
-        imei: validated.imei,
-        color: validated.color,
-      })
+      .insert(row)
       .select()
       .single();
     if (error) {
@@ -129,6 +138,13 @@ router.patch('/:id', async (req, res, next) => {
       const price = Number(body.price);
       if (Number.isNaN(price) || price < 0) return res.status(400).json({ error: 'price must be >= 0' });
       updates.price = price;
+    }
+    if (body.purchase_price !== undefined) {
+      const v = body.purchase_price;
+      updates.purchase_price = (v === '' || v === null || v === undefined) ? null : (Number(v) >= 0 ? Number(v) : null);
+      if (updates.purchase_price !== null && (Number.isNaN(updates.purchase_price) || updates.purchase_price < 0)) {
+        return res.status(400).json({ error: 'purchase_price must be >= 0' });
+      }
     }
     if (body.unit !== undefined) {
       updates.unit = (body.unit ?? '').toString().trim().slice(0, 50) || null;

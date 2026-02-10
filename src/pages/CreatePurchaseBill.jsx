@@ -101,7 +101,8 @@ export default function CreatePurchaseBill() {
       next[i] = { ...next[i], [field]: value };
       if (field === 'product_id' && value) {
         const product = products.find((p) => p.id === value);
-        if (product?.last_purchase_price != null) next[i].purchase_price = product.last_purchase_price;
+        if (product?.purchase_price != null) next[i].purchase_price = product.purchase_price;
+        else if (product?.last_purchase_price != null) next[i].purchase_price = product.last_purchase_price;
         else if (product?.price != null) next[i].purchase_price = product.price;
       }
       return next;

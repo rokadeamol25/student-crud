@@ -63,6 +63,7 @@ export default function Products() {
   const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState('');
   const [addFields, setAddFields] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
@@ -71,6 +72,7 @@ export default function Products() {
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
   const [editPrice, setEditPrice] = useState('');
+  const [editPurchasePrice, setEditPurchasePrice] = useState('');
   const [editFields, setEditFields] = useState({});
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
@@ -117,6 +119,11 @@ export default function Products() {
     setSubmitting(true);
     try {
       const payload = { name: name.trim(), price: parseFloat(price, 10) || 0, tracking_type: defaultTrackingType };
+      const pp = (purchasePrice ?? '').toString().trim();
+      if (pp !== '') {
+        const ppNum = parseFloat(pp, 10);
+        if (!Number.isNaN(ppNum) && ppNum >= 0) payload.purchase_price = ppNum;
+      }
       for (const col of extraCols) {
         const v = (addFields[col] ?? '').toString().trim();
         if (col === 'tax_percent') {
@@ -127,7 +134,7 @@ export default function Products() {
         }
       }
       const data = await api.post(token, '/api/products', payload);
-      setName(''); setPrice(''); setAddFields({});
+      setName(''); setPrice(''); setPurchasePrice(''); setAddFields({});
       setList((prev) => [data, ...prev]);
       setTotal((t) => t + 1);
       showToast('Product added', 'success');
@@ -141,7 +148,8 @@ export default function Products() {
   function openEdit(p) {
     setEditing(p);
     setEditName(p.name);
-    setEditPrice(String(p.price));
+    setEditPrice(String(p.price ?? ''));
+    setEditPurchasePrice(p.purchase_price != null ? String(p.purchase_price) : '');
     const ef = {};
     for (const col of extraCols) {
       ef[col] = p[col] != null ? String(p[col]) : '';
@@ -151,7 +159,7 @@ export default function Products() {
 
   function closeEdit() {
     setEditing(null);
-    setEditName(''); setEditPrice(''); setEditFields({});
+    setEditName(''); setEditPrice(''); setEditPurchasePrice(''); setEditFields({});
   }
 
   async function handleEditSubmit(e) {
@@ -160,6 +168,11 @@ export default function Products() {
     setEditSubmitting(true);
     try {
       const payload = { name: editName.trim(), price: parseFloat(editPrice, 10) ?? 0 };
+      const pp = (editPurchasePrice ?? '').toString().trim();
+      payload.purchase_price = pp === '' ? null : (parseFloat(pp, 10));
+      if (payload.purchase_price !== null && (Number.isNaN(payload.purchase_price) || payload.purchase_price < 0)) {
+        payload.purchase_price = null;
+      }
       for (const col of extraCols) {
         const v = (editFields[col] ?? '').toString().trim();
         if (col === 'tax_percent') {
@@ -287,10 +300,19 @@ export default function Products() {
             step="0.01"
             min="0"
             className="form__input"
-            placeholder="Price"
+            placeholder="Selling price"
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             required
+          />
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            className="form__input"
+            placeholder="Purchase price (optional)"
+            value={purchasePrice}
+            onChange={(e) => setPurchasePrice(e.target.value)}
           />
           {extraCols.map((col) => (
             <FieldInput
@@ -335,7 +357,8 @@ export default function Products() {
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Price</th>
+                  <th>Selling price</th>
+                  <th>Purchase price</th>
                   <th>Tracking</th>
                   <th>Stock</th>
                   {extraCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
@@ -347,6 +370,7 @@ export default function Products() {
                   <tr key={p.id}>
                     <td>{p.name}</td>
                     <td>{formatMoney(p.price, tenant)}</td>
+                    <td>{p.purchase_price != null ? formatMoney(p.purchase_price, tenant) : '—'}</td>
                     <td><TrackingBadge type={p.tracking_type || 'quantity'} /></td>
                     <td>
                       {stockDisplay(p)}
@@ -410,8 +434,12 @@ export default function Products() {
                 <input className="form__input" value={editName} onChange={(e) => setEditName(e.target.value)} required />
               </label>
               <label className="form__label">
-                <span>Price</span>
+                <span>Selling price</span>
                 <input type="number" step="0.01" min="0" className="form__input" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} required />
+              </label>
+              <label className="form__label">
+                <span>Purchase price (optional)</span>
+                <input type="number" step="0.01" min="0" className="form__input" placeholder="Default when purchasing" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} />
               </label>
               <div className="form__label">
                 <span>Type</span>
