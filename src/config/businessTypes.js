@@ -19,6 +19,7 @@ export const DEFAULTS = {
   customerSupplierSearch: {
     method: 'dropdown', // 'dropdown' = picklist; 'typeahead' = search by name
   },
+  showRoughBillRef: false, // when true, show rough bill ref field on invoices (internal only; never on print/PDF)
 };
 
 /**

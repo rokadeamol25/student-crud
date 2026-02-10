@@ -25,8 +25,8 @@ function productLabelFn(p, fmt, tenant) {
 }
 const AUTOSAVE_DEBOUNCE_MS = 2500;
 
-function buildPayload(customerId, invoiceDate, items, gstType = 'intra') {
-  return {
+function buildPayload(customerId, invoiceDate, items, gstType = 'intra', roughBillRef = '', includeRoughBillRef = false) {
+  const payload = {
     customerId,
     invoiceDate,
     status: 'draft',
@@ -40,13 +40,15 @@ function buildPayload(customerId, invoiceDate, items, gstType = 'intra') {
       discountValue: Number(it.discountValue) || 0,
     })),
   };
+  if (includeRoughBillRef) payload.rough_bill_ref = (roughBillRef || '').trim() || undefined;
+  return payload;
 }
 
 export default function CreateInvoice() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const { invoiceProductSearch, invoiceLineItems } = useBusinessConfig();
+  const { invoiceProductSearch, invoiceLineItems, showRoughBillRef: showRoughBillRefEnabled } = useBusinessConfig();
   const isTypeahead = invoiceProductSearch.method === 'typeahead';
   const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
 
@@ -69,6 +71,7 @@ export default function CreateInvoice() {
   const [customerId, setCustomerId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [gstType, setGstType] = useState('intra');
+  const [roughBillRef, setRoughBillRef] = useState('');
   const [items, setItems] = useState([emptyItem()]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -86,7 +89,7 @@ export default function CreateInvoice() {
     if (!token || !canAutosave) return;
     setSaveStatus('saving');
     try {
-      const payload = buildPayload(customerId, invoiceDate, items, gstType);
+      const payload = buildPayload(customerId, invoiceDate, items, gstType, roughBillRef, showRoughBillRefEnabled);
       if (draftId) {
         await api.patch(token, `/api/invoices/${draftId}`, payload);
       } else {
@@ -242,7 +245,7 @@ export default function CreateInvoice() {
     setError('');
     setSubmitting(true);
     try {
-      const payload = buildPayload(customerId, invoiceDate, items);
+      const payload = buildPayload(customerId, invoiceDate, items, gstType, roughBillRef, showRoughBillRefEnabled);
       if (draftId) {
         await api.patch(token, `/api/invoices/${draftId}`, payload);
         showToast('Invoice updated', 'success');
@@ -306,6 +309,18 @@ export default function CreateInvoice() {
               <option value="inter">Inter-state (IGST)</option>
             </select>
           </label>
+          {showRoughBillRefEnabled && (
+            <label className="form__label">
+              <span>Rough bill ref (optional)</span>
+              <input
+                className="form__input"
+                placeholder="Internal reference (e.g. rough bill no.)"
+                value={roughBillRef}
+                onChange={(e) => setRoughBillRef(e.target.value)}
+                maxLength={100}
+              />
+            </label>
+          )}
         </div>
         <h3 className="invoice-form__items-title">Items</h3>
         <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>

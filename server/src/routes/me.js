@@ -161,7 +161,7 @@ const PRODUCT_SYSTEM_COLS = new Set(['id', 'tenant_id', 'name', 'price', 'create
 const INVOICE_ITEM_SYSTEM_COLS = new Set([
   'id', 'invoice_id', 'product_id', 'description', 'quantity', 'unit_price', 'amount',
   'tax_percent', 'gst_type', 'cgst_amount', 'sgst_amount', 'igst_amount', 'hsn_sac_code',
-  'cost_price', 'cost_amount', 'created_at', 'updated_at',
+  'cost_price', 'cost_amount', 'discount_type', 'discount_value', 'discount_amount', 'created_at', 'updated_at',
 ]);
 
 async function getTableColumns(tableName) {

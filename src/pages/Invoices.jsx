@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useBusinessConfig } from '../hooks/useBusinessConfig';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -29,6 +30,7 @@ function paymentStatus(inv) {
 
 export default function Invoices() {
   const { token, tenant } = useAuth();
+  const { showRoughBillRef: showRoughBillRefEnabled } = useBusinessConfig();
   const { showToast } = useToast();
   const [list, setList] = useState([]);
   const [total, setTotal] = useState(0);
@@ -278,6 +280,12 @@ export default function Invoices() {
                     <span className="invoice-card__label">Total</span>
                     <span className="invoice-card__value">{formatMoney(inv.total, tenant)}</span>
                   </div>
+                  {showRoughBillRefEnabled && inv.rough_bill_ref && (
+                    <div className="invoice-card__row">
+                      <span className="invoice-card__label">Rough bill ref</span>
+                      <span className="invoice-card__value">{inv.rough_bill_ref}</span>
+                    </div>
+                  )}
                   {renderCardActions(inv)}
                 </div>
               ))}
@@ -291,6 +299,7 @@ export default function Invoices() {
                     <th>Status</th>
                     <th>Payment</th>
                     <th>Total</th>
+                    {showRoughBillRefEnabled && <th>Rough bill ref</th>}
                     <th></th>
                   </tr>
                 </thead>
@@ -311,6 +320,7 @@ export default function Invoices() {
                         )}
                       </td>
                       <td>{formatMoney(inv.total, tenant)}</td>
+                      {showRoughBillRefEnabled && <td>{inv.rough_bill_ref || '—'}</td>}
                       <td>{renderActions(inv)}</td>
                     </tr>
                   ); })}

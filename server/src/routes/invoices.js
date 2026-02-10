@@ -226,6 +226,7 @@ router.post('/', async (req, res, next) => {
     }
 
     const gstType = (body.gst_type ?? body.gstType ?? 'intra').toString().toLowerCase() === 'inter' ? 'inter' : 'intra';
+    const roughBillRef = (body.rough_bill_ref ?? body.roughBillRef ?? '').toString().trim() || null;
     const { data: tenantRow } = await supabase.from('tenants').select('tax_percent').eq('id', req.tenantId).single();
     const tenantTaxPercent = tenantRow?.tax_percent != null ? Number(tenantRow.tax_percent) : 0;
 
@@ -324,6 +325,7 @@ router.post('/', async (req, res, next) => {
           discount_total: discountTotal,
           total,
           gst_type: gstType,
+          rough_bill_ref: roughBillRef,
         })
         .select()
         .single());

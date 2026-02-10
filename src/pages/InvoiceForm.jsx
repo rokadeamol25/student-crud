@@ -86,7 +86,7 @@ export default function InvoiceForm() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const { invoiceProductSearch, invoiceLineItems, customerSupplierSearch } = useBusinessConfig();
+  const { invoiceProductSearch, invoiceLineItems, customerSupplierSearch, showRoughBillRef: showRoughBillRefEnabled } = useBusinessConfig();
   const isTypeahead = invoiceProductSearch.method === 'typeahead';
   const isCustomerTypeahead = (customerSupplierSearch?.method ?? 'dropdown') === 'typeahead';
   const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
@@ -114,6 +114,7 @@ export default function InvoiceForm() {
   const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
   const [showCustomerResults, setShowCustomerResults] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [roughBillRef, setRoughBillRef] = useState('');
   const [gstType, setGstType] = useState('intra');
   const [items, setItems] = useState([emptyItem()]);
   const [error, setError] = useState('');
@@ -150,6 +151,7 @@ export default function InvoiceForm() {
           if (inv.customer) setSelectedCustomer(inv.customer);
           setInvoiceDate(inv.invoice_date || '');
           setGstType(inv.gst_type === 'inter' ? 'inter' : 'intra');
+          setRoughBillRef(inv.rough_bill_ref || '');
           const invItems = inv.invoice_items || [];
           setItems(invItems.length ? invItems.map(itemFromRow) : [emptyItem()]);
         } else if (!isEdit && !isCustomerTypeahead && c.length) {
@@ -322,6 +324,7 @@ export default function InvoiceForm() {
         discountValue: Number(it.discountValue) || 0,
       })),
     };
+    if (showRoughBillRefEnabled) payload.rough_bill_ref = (roughBillRef || '').trim() || undefined;
     if (status === 'sent') {
       const serialIds = {};
       items.forEach((it) => {
@@ -474,6 +477,18 @@ export default function InvoiceForm() {
               <option value="inter">Inter-state (IGST)</option>
             </select>
           </label>
+          {showRoughBillRefEnabled && (
+            <label className="form__label">
+              <span>Rough bill ref (optional)</span>
+              <input
+                className="form__input"
+                placeholder="Internal reference (e.g. rough bill no.)"
+                value={roughBillRef}
+                onChange={(e) => setRoughBillRef(e.target.value)}
+                maxLength={100}
+              />
+            </label>
+          )}
         </div>
         <h3 className="invoice-form__items-title">Items</h3>
         <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>

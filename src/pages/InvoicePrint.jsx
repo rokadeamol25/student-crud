@@ -18,7 +18,7 @@ export default function InvoicePrint() {
   const { id } = useParams();
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
-  const { invoiceLineItems } = useBusinessConfig();
+  const { invoiceLineItems, showRoughBillRef: showRoughBillRefEnabled } = useBusinessConfig();
   const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
   const extraInvCols = (() => {
     const allowed = INVOICE_COLS_BY_TRACKING_TYPE[defaultTrackingType];
@@ -346,6 +346,9 @@ export default function InvoicePrint() {
             {invoice.due_date && <p><span className="invoice-print__detail-label">Due:</span> {formatDatePrint(invoice.due_date)}</p>}
             {invoice.status && invoice.status !== 'paid' && (
               <p><span className="invoice-print__detail-label">Status:</span> <span className={`badge badge--${invoice.status}`}>{invoice.status}</span></p>
+            )}
+            {showRoughBillRefEnabled && invoice.rough_bill_ref && (
+              <p className="no-print"><span className="invoice-print__detail-label">Rough bill ref:</span> {invoice.rough_bill_ref}</p>
             )}
           </div>
         </div>

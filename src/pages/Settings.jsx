@@ -41,6 +41,7 @@ export default function Settings() {
   const [searchMethod, setSearchMethod] = useState(fc?.invoiceProductSearch?.method ?? 'dropdown');
   const [customerSupplierSearchMethod, setCustomerSupplierSearchMethod] = useState(fc?.customerSupplierSearch?.method ?? 'dropdown');
   const [defaultTrackingType, setDefaultTrackingType] = useState(fc?.defaultTrackingType ?? 'quantity');
+  const [showRoughBillRef, setShowRoughBillRef] = useState(!!fc?.showRoughBillRef);
   const [logoUploading, setLogoUploading] = useState(false);
 
   // Fetch available columns from DB on mount
@@ -73,6 +74,7 @@ export default function Settings() {
     setSearchMethod(tfc?.invoiceProductSearch?.method ?? 'dropdown');
     setCustomerSupplierSearchMethod(tfc?.customerSupplierSearch?.method ?? 'dropdown');
     setDefaultTrackingType(tfc?.defaultTrackingType ?? 'quantity');
+    setShowRoughBillRef(!!tfc?.showRoughBillRef);
   }, [tenant?.name, tenant?.address, tenant?.phone, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config]);
 
   function toggleProd(col) {
@@ -156,7 +158,7 @@ export default function Settings() {
         invoice_header_note: (invoiceHeaderNote ?? '').trim().slice(0, 2000) || undefined,
         invoice_footer_note: (invoiceFooterNote ?? '').trim().slice(0, 2000) || undefined,
         invoice_page_size: (invoicePageSize === 'Letter' ? 'Letter' : 'A4'),
-        feature_config: {
+          feature_config: {
           productForm: prodToggles,
           invoiceLineItems: invToggles,
           invoiceProductSearch: {
@@ -166,6 +168,7 @@ export default function Settings() {
             method: customerSupplierSearchMethod,
           },
           defaultTrackingType,
+          showRoughBillRef: showRoughBillRef,
         },
       });
       await refetchMe();
@@ -297,6 +300,15 @@ export default function Settings() {
               <option value="dropdown">Dropdown (pick from full list)</option>
               <option value="typeahead">Search by name (type to search)</option>
             </select>
+          </label>
+
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Rough bill reference</h3>
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            When enabled, you can enter an optional rough bill / estimate reference on invoices. Internal use only — never shown on print or PDF.
+          </p>
+          <label className="settings-toggle">
+            <input type="checkbox" checked={!!showRoughBillRef} onChange={(e) => setShowRoughBillRef(e.target.checked)} />
+            <span>Show rough bill reference field on invoices</span>
           </label>
 
           <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Currency &amp; tax</h3>

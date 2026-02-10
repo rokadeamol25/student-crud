@@ -54,7 +54,7 @@ export default function EditInvoice() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const { invoiceProductSearch, invoiceLineItems } = useBusinessConfig();
+  const { invoiceProductSearch, invoiceLineItems, showRoughBillRef: showRoughBillRefEnabled } = useBusinessConfig();
   const isTypeahead = invoiceProductSearch.method === 'typeahead';
   const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
 
@@ -77,6 +77,7 @@ export default function EditInvoice() {
   const [customerId, setCustomerId] = useState('');
   const [invoiceDate, setInvoiceDate] = useState('');
   const [gstType, setGstType] = useState('intra');
+  const [roughBillRef, setRoughBillRef] = useState('');
   const [items, setItems] = useState([emptyItem()]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -95,7 +96,7 @@ export default function EditInvoice() {
     if (!token || !id || !canAutosave) return;
     setSaveStatus('saving');
     try {
-      await api.patch(token, `/api/invoices/${id}`, {
+      const patchPayload = {
         customerId,
         invoiceDate,
         gst_type: gstType,
@@ -107,7 +108,9 @@ export default function EditInvoice() {
           discountType: it.discountType === 'flat' || it.discountType === 'percent' ? it.discountType : undefined,
           discountValue: Number(it.discountValue) || 0,
         })),
-      });
+      };
+      if (showRoughBillRefEnabled) patchPayload.rough_bill_ref = (roughBillRef || '').trim() || undefined;
+      await api.patch(token, `/api/invoices/${id}`, patchPayload);
       setSaveStatus('saved');
       setLastSavedAt(new Date());
     } catch (e) {
@@ -150,6 +153,7 @@ export default function EditInvoice() {
         setCustomerId(inv.customer_id || inv.customer?.id || '');
         setInvoiceDate(inv.invoice_date || '');
         setGstType(inv.gst_type === 'inter' ? 'inter' : 'intra');
+        setRoughBillRef(inv.rough_bill_ref || '');
         const invItems = inv.invoice_items || [];
         setItems(invItems.length ? invItems.map(itemFromRow) : [emptyItem()]);
         setLoadedInvoice(inv);
@@ -338,6 +342,18 @@ export default function EditInvoice() {
               <option value="inter">Inter-state (IGST)</option>
             </select>
           </label>
+          {showRoughBillRefEnabled && (
+            <label className="form__label">
+              <span>Rough bill ref (optional)</span>
+              <input
+                className="form__input"
+                placeholder="Internal reference (e.g. rough bill no.)"
+                value={roughBillRef}
+                onChange={(e) => setRoughBillRef(e.target.value)}
+                maxLength={100}
+              />
+            </label>
+          )}
         </div>
         <h3 className="invoice-form__items-title">Items</h3>
         <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
