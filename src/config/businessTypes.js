@@ -16,6 +16,9 @@ export const DEFAULTS = {
     limit: 500,
     typeaheadDebounceMs: 300,
   },
+  customerSupplierSearch: {
+    method: 'dropdown', // 'dropdown' = picklist; 'typeahead' = search by name
+  },
 };
 
 /**

@@ -39,6 +39,7 @@ export default function Settings() {
   const [prodToggles, setProdToggles] = useState(cleanToggles(fc?.productForm));
   const [invToggles, setInvToggles] = useState(cleanToggles(fc?.invoiceLineItems));
   const [searchMethod, setSearchMethod] = useState(fc?.invoiceProductSearch?.method ?? 'dropdown');
+  const [customerSupplierSearchMethod, setCustomerSupplierSearchMethod] = useState(fc?.customerSupplierSearch?.method ?? 'dropdown');
   const [defaultTrackingType, setDefaultTrackingType] = useState(fc?.defaultTrackingType ?? 'quantity');
   const [logoUploading, setLogoUploading] = useState(false);
 
@@ -70,6 +71,7 @@ export default function Settings() {
     setProdToggles(cleanToggles(tfc?.productForm));
     setInvToggles(cleanToggles(tfc?.invoiceLineItems));
     setSearchMethod(tfc?.invoiceProductSearch?.method ?? 'dropdown');
+    setCustomerSupplierSearchMethod(tfc?.customerSupplierSearch?.method ?? 'dropdown');
     setDefaultTrackingType(tfc?.defaultTrackingType ?? 'quantity');
   }, [tenant?.name, tenant?.address, tenant?.phone, tenant?.currency, tenant?.currency_symbol, tenant?.gstin, tenant?.tax_percent, tenant?.invoice_prefix, tenant?.invoice_next_number, tenant?.invoice_header_note, tenant?.invoice_footer_note, tenant?.invoice_page_size, tenant?.feature_config]);
 
@@ -159,6 +161,9 @@ export default function Settings() {
           invoiceLineItems: invToggles,
           invoiceProductSearch: {
             method: searchMethod,
+          },
+          customerSupplierSearch: {
+            method: customerSupplierSearchMethod,
           },
           defaultTrackingType,
         },
@@ -275,6 +280,22 @@ export default function Settings() {
             >
               <option value="dropdown">Dropdown (load all products, pick from list)</option>
               <option value="typeahead">Search-as-you-type (type to search, smaller results)</option>
+            </select>
+          </label>
+
+          <h3 className="card__subheading" style={{ marginTop: '1.5rem' }}>Customer &amp; supplier search</h3>
+          <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+            How customer (invoice) and supplier (purchase bill) are selected.
+          </p>
+          <label className="form__label">
+            <span>Search method</span>
+            <select
+              className="form__input"
+              value={customerSupplierSearchMethod}
+              onChange={(e) => setCustomerSupplierSearchMethod(e.target.value)}
+            >
+              <option value="dropdown">Dropdown (pick from full list)</option>
+              <option value="typeahead">Search by name (type to search)</option>
             </select>
           </label>
 

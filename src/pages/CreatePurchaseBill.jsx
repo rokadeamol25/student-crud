@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useBusinessConfig } from '../hooks/useBusinessConfig';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ListSkeleton from '../components/ListSkeleton';
@@ -20,30 +21,75 @@ export default function CreatePurchaseBill() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const { customerSupplierSearch } = useBusinessConfig();
+  const isSupplierTypeahead = (customerSupplierSearch?.method ?? 'dropdown') === 'typeahead';
   const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
   const [supplierId, setSupplierId] = useState('');
+  const [selectedSupplier, setSelectedSupplier] = useState(null);
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
+  const [supplierSearchResults, setSupplierSearchResults] = useState([]);
+  const [supplierSearchLoading, setSupplierSearchLoading] = useState(false);
+  const [showSupplierResults, setShowSupplierResults] = useState(false);
   const [billNumber, setBillNumber] = useState('');
   const [billDate, setBillDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [items, setItems] = useState([emptyItem()]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loadingOptions, setLoadingOptions] = useState(true);
+  const supplierDebounceRef = useRef(null);
+  const selectedSupplierDisplayRef = useRef(null);
 
   useEffect(() => {
     if (!token) return;
     Promise.all([
-      api.get(token, '/api/suppliers?limit=500'),
+      isSupplierTypeahead ? Promise.resolve({ data: [] }) : api.get(token, '/api/suppliers?limit=500'),
       api.get(token, '/api/products?limit=500'),
     ]).then(([sRes, pRes]) => {
-      const s = sRes?.data ?? [];
-      const p = pRes?.data ?? [];
+      const s = sRes?.data ?? (Array.isArray(sRes) ? sRes : []);
+      const p = pRes?.data ?? (Array.isArray(pRes) ? pRes : []);
       setSuppliers(s);
       setProducts(p);
-      if (s.length) setSupplierId(s[0].id);
+      if (!isSupplierTypeahead && s.length) setSupplierId(s[0].id);
     }).catch((e) => setError(e.message)).finally(() => setLoadingOptions(false));
-  }, [token]);
+  }, [token, isSupplierTypeahead]);
+
+  // Restore selected supplier display when we have supplierId but selectedSupplier was lost
+  useEffect(() => {
+    if (!isSupplierTypeahead || !token || !supplierId || (selectedSupplier && selectedSupplier.id === supplierId)) return;
+    api.get(token, `/api/suppliers/${supplierId}`)
+      .then((data) => {
+        if (!data?.id) return;
+        const obj = { id: data.id, name: data.name ?? '', email: data.email ?? '', phone: data.phone ?? '' };
+        selectedSupplierDisplayRef.current = obj;
+        setSelectedSupplier(obj);
+      })
+      .catch(() => {});
+  }, [isSupplierTypeahead, token, supplierId, selectedSupplier?.id]);
+
+  useEffect(() => {
+    if (!isSupplierTypeahead || !token) return;
+    if (supplierDebounceRef.current) clearTimeout(supplierDebounceRef.current);
+    const q = supplierSearchQuery.trim();
+    if (!q) {
+      setSupplierSearchResults([]);
+      return;
+    }
+    supplierDebounceRef.current = setTimeout(() => {
+      supplierDebounceRef.current = null;
+      setSupplierSearchLoading(true);
+      api.get(token, `/api/suppliers?q=${encodeURIComponent(q)}&limit=30`)
+        .then((res) => {
+          const s = res?.data ?? (Array.isArray(res) ? res : []);
+          setSupplierSearchResults(s);
+          setShowSupplierResults(true);
+        })
+        .catch(() => setSupplierSearchResults([]))
+        .finally(() => setSupplierSearchLoading(false));
+    }, 300);
+    return () => { if (supplierDebounceRef.current) clearTimeout(supplierDebounceRef.current); };
+  }, [token, isSupplierTypeahead, supplierSearchQuery]);
 
   function addLine() {
     setItems((prev) => [...prev, emptyItem()]);
@@ -77,7 +123,7 @@ export default function CreatePurchaseBill() {
     e.preventDefault();
     setError('');
     if (!supplierId || !billDate) {
-      setError('Supplier and date are required.');
+      setError(isSupplierTypeahead ? 'Please select a supplier.' : 'Supplier and date are required.');
       return;
     }
     const validItems = items
@@ -137,17 +183,79 @@ export default function CreatePurchaseBill() {
         <div className="form form--grid">
           <label className="form__label">
             <span>Supplier</span>
-            <select
-              className="form__input"
-              value={supplierId}
-              onChange={(e) => setSupplierId(e.target.value)}
-              required
-            >
-              <option value="">Select supplier</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
+            {isSupplierTypeahead ? (
+              <div className="typeahead-wrap">
+                {(selectedSupplier || selectedSupplierDisplayRef.current || supplierId) ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span className="form__input" style={{ flex: '1 1 12rem', minHeight: 40, display: 'flex', alignItems: 'center' }}>
+                      {(selectedSupplier || selectedSupplierDisplayRef.current) ? (
+                        <>{((selectedSupplier || selectedSupplierDisplayRef.current).name || 'Supplier').trim() || 'Supplier'}{(selectedSupplier || selectedSupplierDisplayRef.current).phone ? ` · ${(selectedSupplier || selectedSupplierDisplayRef.current).phone}` : ''}{(selectedSupplier || selectedSupplierDisplayRef.current).email ? ` · ${(selectedSupplier || selectedSupplierDisplayRef.current).email}` : ''}</>
+                      ) : (
+                        <>Supplier selected (loading…)</>
+                      )}
+                    </span>
+                    <button type="button" className="btn btn--ghost btn--sm" onClick={() => { selectedSupplierDisplayRef.current = null; setSelectedSupplier(null); setSupplierId(''); setSupplierSearchQuery(''); setSupplierSearchResults([]); }}>
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="search"
+                      className="form__input"
+                      placeholder="Search supplier by name…"
+                      value={supplierSearchQuery}
+                      onChange={(e) => setSupplierSearchQuery(e.target.value)}
+                      onFocus={() => { if (supplierSearchResults.length) setShowSupplierResults(true); }}
+                      autoComplete="off"
+                    />
+                    {supplierSearchLoading && <p className="page__muted" style={{ fontSize: '0.875rem', margin: '0.25rem 0 0' }}>Searching…</p>}
+                    {showSupplierResults && !supplierSearchLoading && supplierSearchQuery.trim() && supplierSearchResults.length === 0 && (
+                      <p className="page__muted" style={{ fontSize: '0.875rem', margin: '0.25rem 0 0' }}>No suppliers found for &quot;{supplierSearchQuery.trim()}&quot;</p>
+                    )}
+                    {showSupplierResults && supplierSearchResults.length > 0 && (
+                      <ul className="typeahead-results">
+                        {supplierSearchResults.map((s) => (
+                          <li key={s.id}>
+                            <button
+                              type="button"
+                              className="typeahead-results__item"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const picked = { id: s.id, name: (s.name != null ? String(s.name) : '') || '', email: s.email || '', phone: s.phone || '' };
+                                selectedSupplierDisplayRef.current = picked;
+                                setSupplierId(picked.id);
+                                setSelectedSupplier(picked);
+                                setSupplierSearchQuery('');
+                                setSupplierSearchResults([]);
+                                setShowSupplierResults(false);
+                              }}
+                            >
+                              <span className="typeahead-results__name">{s.name}</span>
+                              {s.email ? <span className="typeahead-results__meta"> · {s.email}</span> : null}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+                {!supplierId && <p className="page__muted" style={{ fontSize: '0.8125rem', marginTop: '0.25rem' }}>Type to search and select a supplier</p>}
+              </div>
+            ) : (
+              <select
+                className="form__input"
+                value={supplierId}
+                onChange={(e) => setSupplierId(e.target.value)}
+                required
+              >
+                <option value="">Select supplier</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
           </label>
           <label className="form__label">
             <span>Bill number</span>

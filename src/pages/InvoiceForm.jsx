@@ -84,8 +84,9 @@ export default function InvoiceForm() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const { invoiceProductSearch, invoiceLineItems } = useBusinessConfig();
+  const { invoiceProductSearch, invoiceLineItems, customerSupplierSearch } = useBusinessConfig();
   const isTypeahead = invoiceProductSearch.method === 'typeahead';
+  const isCustomerTypeahead = (customerSupplierSearch?.method ?? 'dropdown') === 'typeahead';
   const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
 
   const extraInvCols = useMemo(() => {
@@ -105,6 +106,11 @@ export default function InvoiceForm() {
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [customerId, setCustomerId] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [customerSearchResults, setCustomerSearchResults] = useState([]);
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+  const [showCustomerResults, setShowCustomerResults] = useState(false);
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [gstType, setGstType] = useState('intra');
   const [items, setItems] = useState([emptyItem()]);
@@ -112,13 +118,15 @@ export default function InvoiceForm() {
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const typeaheadDebounceRef = useRef(null);
+  const customerDebounceRef = useRef(null);
+  const selectedCustomerDisplayRef = useRef(null);
 
-  // Load customers, products, and (if edit) the existing invoice
+  // Load customers (full list only when dropdown), products, and (if edit) the existing invoice
   const productLimit = isTypeahead ? (invoiceProductSearch.limit || 20) : (invoiceProductSearch.limit || 500);
   useEffect(() => {
     if (!token) return;
     const fetches = [
-      api.get(token, '/api/customers?limit=500'),
+      isCustomerTypeahead ? Promise.resolve({ data: [] }) : api.get(token, '/api/customers?limit=500'),
       api.get(token, `/api/products?limit=${productLimit}`),
     ];
     if (isEdit) fetches.push(api.get(token, `/api/invoices/${id}`));
@@ -135,18 +143,33 @@ export default function InvoiceForm() {
             navigate(`/invoices/${id}/print`, { replace: true });
             return;
           }
-          setCustomerId(inv.customer_id || inv.customer?.id || '');
+          const cid = inv.customer_id || inv.customer?.id || '';
+          setCustomerId(cid);
+          if (inv.customer) setSelectedCustomer(inv.customer);
           setInvoiceDate(inv.invoice_date || '');
           setGstType(inv.gst_type === 'inter' ? 'inter' : 'intra');
           const invItems = inv.invoice_items || [];
           setItems(invItems.length ? invItems.map(itemFromRow) : [emptyItem()]);
-        } else if (!isEdit && c.length) {
+        } else if (!isEdit && !isCustomerTypeahead && c.length) {
           setCustomerId(c[0].id);
         }
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [token, id, isEdit, navigate, productLimit]);
+  }, [token, id, isEdit, navigate, productLimit, isCustomerTypeahead]);
+
+  // Restore selected customer display when we have customerId but selectedCustomer was lost
+  useEffect(() => {
+    if (!isCustomerTypeahead || !token || !customerId || (selectedCustomer && selectedCustomer.id === customerId)) return;
+    api.get(token, `/api/customers/${customerId}`)
+      .then((data) => {
+        if (!data?.id) return;
+        const obj = { id: data.id, name: data.name ?? '', email: data.email ?? '', phone: data.phone ?? '' };
+        selectedCustomerDisplayRef.current = obj;
+        setSelectedCustomer(obj);
+      })
+      .catch(() => {});
+  }, [isCustomerTypeahead, token, customerId, selectedCustomer?.id]);
 
   // Typeahead search
   useEffect(() => {
@@ -174,6 +197,30 @@ export default function InvoiceForm() {
     }, invoiceProductSearch.typeaheadDebounceMs ?? 300);
     return () => { if (typeaheadDebounceRef.current) clearTimeout(typeaheadDebounceRef.current); };
   }, [token, isTypeahead, productSearchQuery, invoiceProductSearch.limit, invoiceProductSearch.typeaheadDebounceMs]);
+
+  // Customer typeahead: debounced search when method is typeahead
+  useEffect(() => {
+    if (!isCustomerTypeahead || !token) return;
+    if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
+    const q = customerSearchQuery.trim();
+    if (!q) {
+      setCustomerSearchResults([]);
+      return;
+    }
+    customerDebounceRef.current = setTimeout(() => {
+      customerDebounceRef.current = null;
+      setCustomerSearchLoading(true);
+      api.get(token, `/api/customers?q=${encodeURIComponent(q)}&limit=30`)
+        .then((res) => {
+          const c = Array.isArray(res) ? res : (res?.data ?? []);
+          setCustomerSearchResults(c);
+          setShowCustomerResults(true);
+        })
+        .catch(() => setCustomerSearchResults([]))
+        .finally(() => setCustomerSearchLoading(false));
+    }, 300);
+    return () => { if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current); };
+  }, [token, isCustomerTypeahead, customerSearchQuery]);
 
   function makeLineFromProduct(product) {
     const line = { productId: product.id, description: product.name, quantity: 1, unitPrice: product.price, selectedSerialId: '' };
@@ -263,6 +310,10 @@ export default function InvoiceForm() {
   }
 
   async function handleSave(status) {
+    if (isCustomerTypeahead && !customerId) {
+      setError('Please select a customer');
+      return;
+    }
     setError('');
     setSubmitting(true);
     try {
@@ -290,7 +341,6 @@ export default function InvoiceForm() {
 
   function handleSubmit(e) {
     e.preventDefault();
-    // Default form submit = Save & Send
     handleSave('sent');
   }
 
@@ -319,10 +369,72 @@ export default function InvoiceForm() {
         <div className="form form--grid">
           <label className="form__label">
             <span>Customer</span>
-            <select className="form__input" value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
-              <option value="">Select customer</option>
-              {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            {isCustomerTypeahead ? (
+              <div className="typeahead-wrap">
+                {(selectedCustomer || selectedCustomerDisplayRef.current || customerId) ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span className="form__input" style={{ flex: '1 1 12rem', minHeight: 40, display: 'flex', alignItems: 'center' }}>
+                      {(selectedCustomer || selectedCustomerDisplayRef.current) ? (
+                        <>{((selectedCustomer || selectedCustomerDisplayRef.current).name || 'Customer').trim() || 'Customer'}{(selectedCustomer || selectedCustomerDisplayRef.current).phone ? ` · ${(selectedCustomer || selectedCustomerDisplayRef.current).phone}` : ''}{(selectedCustomer || selectedCustomerDisplayRef.current).email ? ` · ${(selectedCustomer || selectedCustomerDisplayRef.current).email}` : ''}</>
+                      ) : (
+                        <>Customer selected (loading…)</>
+                      )}
+                    </span>
+                    <button type="button" className="btn btn--ghost btn--sm" onClick={() => { selectedCustomerDisplayRef.current = null; setSelectedCustomer(null); setCustomerId(''); setCustomerSearchQuery(''); setCustomerSearchResults([]); }}>
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      type="search"
+                      className="form__input"
+                      placeholder="Search customer by name…"
+                      value={customerSearchQuery}
+                      onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                      onFocus={() => { if (customerSearchResults.length) setShowCustomerResults(true); }}
+                      autoComplete="off"
+                    />
+                    {customerSearchLoading && <p className="page__muted" style={{ fontSize: '0.875rem', margin: '0.25rem 0 0' }}>Searching…</p>}
+                    {showCustomerResults && !customerSearchLoading && customerSearchQuery.trim() && customerSearchResults.length === 0 && (
+                      <p className="page__muted" style={{ fontSize: '0.875rem', margin: '0.25rem 0 0' }}>No customers found for &quot;{customerSearchQuery.trim()}&quot;</p>
+                    )}
+                    {showCustomerResults && customerSearchResults.length > 0 && (
+                      <ul className="typeahead-results">
+                        {customerSearchResults.map((c) => (
+                          <li key={c.id}>
+                            <button
+                              type="button"
+                              className="typeahead-results__item"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const picked = { id: c.id, name: (c.name != null ? String(c.name) : '') || '', email: c.email || '', phone: c.phone || '' };
+                                selectedCustomerDisplayRef.current = picked;
+                                setCustomerId(picked.id);
+                                setSelectedCustomer(picked);
+                                setCustomerSearchQuery('');
+                                setCustomerSearchResults([]);
+                                setShowCustomerResults(false);
+                              }}
+                            >
+                              <span className="typeahead-results__name">{c.name}</span>
+                              {c.email ? <span className="typeahead-results__meta"> · {c.email}</span> : null}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+                {!customerId && <p className="page__muted" style={{ fontSize: '0.8125rem', marginTop: '0.25rem' }}>Type to search and select a customer</p>}
+              </div>
+            ) : (
+              <select className="form__input" value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
+                <option value="">Select customer</option>
+                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
           </label>
           <label className="form__label">
             <span>Date</span>
