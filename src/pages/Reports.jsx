@@ -47,7 +47,7 @@ const PERIODS = [
 ];
 
 export default function Reports() {
-  const { token } = useAuth();
+  const { token, tenant } = useAuth();
   const { reportToggles = { pnl: true, stock: true }, defaultReportPeriod = 'this_month' } = useBusinessConfig();
   const validPeriod = PERIODS.some((p) => p.id === defaultReportPeriod) ? defaultReportPeriod : 'this_month';
   const [periodId, setPeriodId] = useState(validPeriod);
