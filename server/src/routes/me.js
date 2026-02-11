@@ -9,6 +9,13 @@ const router = Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const tenantFields = 'id, name, slug, currency, currency_symbol, gstin, address, phone, tax_percent, invoice_prefix, invoice_next_number, invoice_header_note, invoice_footer_note, logo_url, invoice_page_size, business_type, feature_config';
 const BUCKET = 'tenant-assets';
+
+function requireOwner(req, res, next) {
+  if (req.userRole !== 'owner') {
+    return res.status(403).json({ error: 'Only the account owner can access this.' });
+  }
+  next();
+}
 const MAX_SIZE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
@@ -17,17 +24,18 @@ router.get('/', async (req, res, next) => {
   try {
     const { data: user } = await supabase
       .from('users')
-      .select('id, email, tenant_id')
+      .select('id, email, tenant_id, role')
       .eq('id', req.userId)
       .single();
     if (!user) return res.status(404).json({ error: 'User not found' });
+    const role = (user.role === 'owner' || user.role === 'staff') ? user.role : 'owner';
     const { data: tenant } = await supabase
       .from('tenants')
       .select(tenantFields)
       .eq('id', req.tenantId)
       .single();
     return res.json({
-      user: { id: user.id, email: user.email },
+      user: { id: user.id, email: user.email, role },
       tenant: tenant ? {
         ...tenant,
         currency: tenant.currency || 'INR',
@@ -48,7 +56,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.patch('/', async (req, res, next) => {
+router.patch('/', requireOwner, async (req, res, next) => {
   try {
     const body = req.body || {};
     const updates = {};
@@ -106,6 +114,14 @@ router.patch('/', async (req, res, next) => {
       console.error(error);
       return res.status(500).json({ error: 'Failed to update settings' });
     }
+    const updatedKeys = Object.keys(updates);
+    const { error: auditErr } = await supabase.from('tenant_settings_audit').insert({
+      tenant_id: req.tenantId,
+      user_id: req.userId,
+      action: 'settings_update',
+      details: { updated_keys: updatedKeys },
+    });
+    if (auditErr) { /* audit optional, e.g. table not migrated */ }
     const { data: user } = await supabase.from('users').select('id, email, tenant_id').eq('id', req.userId).single();
     return res.json({ user: user ? { id: user.id, email: user.email } : null, tenant: tenant || null });
   } catch (err) {
@@ -113,7 +129,7 @@ router.patch('/', async (req, res, next) => {
   }
 });
 
-router.post('/logo', async (req, res, next) => {
+router.post('/logo', requireOwner, async (req, res, next) => {
   try {
     const body = req.body || {};
     if (body.remove === true) {
@@ -189,6 +205,141 @@ router.get('/columns', async (req, res, next) => {
     const productColumns = allProdCols.filter(c => !PRODUCT_SYSTEM_COLS.has(c));
     const invoiceItemColumns = allInvCols.filter(c => !INVOICE_ITEM_SYSTEM_COLS.has(c));
     return res.json({ productColumns, invoiceItemColumns });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/me/audit — recent Settings/danger-zone audit entries for the tenant.
+ */
+router.get('/audit', requireOwner, async (req, res, next) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+    const { data, error } = await supabase
+      .from('tenant_settings_audit')
+      .select('id, action, details, created_at')
+      .eq('tenant_id', req.tenantId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) return res.json({ entries: [] }); // table may not exist yet
+    return res.json({ entries: data || [] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/me/export — export tenant data as JSON (products, customers, invoices with items).
+ */
+router.get('/export', requireOwner, async (req, res, next) => {
+  try {
+    const tid = req.tenantId;
+    const [products, customers, invoicesRes] = await Promise.all([
+      supabase.from('products').select('*').eq('tenant_id', tid).order('name'),
+      supabase.from('customers').select('*').eq('tenant_id', tid).order('name'),
+      supabase.from('invoices').select('*').eq('tenant_id', tid).order('invoice_date', { ascending: false }),
+    ]);
+    const productsData = products.data || [];
+    const customersData = customers.data || [];
+    const invoicesData = invoicesRes.data || [];
+    const invoiceIds = invoicesData.map((i) => i.id);
+    let invoiceItems = [];
+    if (invoiceIds.length > 0) {
+      const { data: items } = await supabase.from('invoice_items').select('*').in('invoice_id', invoiceIds).order('created_at');
+      invoiceItems = items || [];
+    }
+    const suppliersRes = await supabase.from('suppliers').select('*').eq('tenant_id', tid).order('name');
+    const suppliersData = suppliersRes.data || [];
+    return res.json({
+      exported_at: new Date().toISOString(),
+      products: productsData,
+      customers: customersData,
+      suppliers: suppliersData,
+      invoices: invoicesData,
+      invoice_items: invoiceItems,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/me/reset-invoice-numbering — set invoice_next_number to 1. Body: { confirm: true }.
+ */
+router.post('/reset-invoice-numbering', requireOwner, async (req, res, next) => {
+  try {
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({ error: 'Body must include confirm: true' });
+    }
+    const { data, error } = await supabase
+      .from('tenants')
+      .update({ invoice_next_number: 1 })
+      .eq('id', req.tenantId)
+      .select(tenantFields)
+      .single();
+    if (error) return res.status(500).json({ error: 'Failed to reset invoice numbering' });
+    const { error: auditErr2 } = await supabase.from('tenant_settings_audit').insert({
+      tenant_id: req.tenantId,
+      user_id: req.userId,
+      action: 'reset_invoice_numbering',
+      details: {},
+    });
+    if (auditErr2) { /* audit optional */ }
+    return res.json({ tenant: data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/me/delete-data — delete all tenant data (invoices, products, customers, suppliers, purchase bills).
+ * Body: { confirm: true }. Order respects FK: payments, invoice_items, invoices; purchase_payments, purchase_bill_items, purchase_bills;
+ * product_serials, product_batches, stock_movements; products; suppliers; customers.
+ */
+router.post('/delete-data', requireOwner, async (req, res, next) => {
+  try {
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({ error: 'Body must include confirm: true' });
+    }
+    const tid = req.tenantId;
+
+    const { data: invoices } = await supabase.from('invoices').select('id').eq('tenant_id', tid);
+    const invoiceIds = (invoices?.data || []).map((i) => i.id);
+    if (invoiceIds.length > 0) {
+      await supabase.from('payments').delete().in('invoice_id', invoiceIds);
+      await supabase.from('invoice_items').delete().in('invoice_id', invoiceIds);
+    }
+    await supabase.from('invoices').delete().eq('tenant_id', tid);
+
+    const { data: bills } = await supabase.from('purchase_bills').select('id').eq('tenant_id', tid);
+    const billIds = (bills?.data || []).map((b) => b.id);
+    if (billIds.length > 0) {
+      await supabase.from('purchase_payments').delete().in('purchase_bill_id', billIds);
+      await supabase.from('purchase_bill_items').delete().in('purchase_bill_id', billIds);
+    }
+    await supabase.from('purchase_bills').delete().eq('tenant_id', tid);
+
+    const { data: prods } = await supabase.from('products').select('id').eq('tenant_id', tid);
+    const productIds = (prods?.data || []).map((p) => p.id);
+    if (productIds.length > 0) {
+      await supabase.from('product_serials').delete().in('product_id', productIds);
+      await supabase.from('product_batches').delete().in('product_id', productIds);
+      await supabase.from('stock_movements').delete().eq('tenant_id', tid);
+    }
+    await supabase.from('products').delete().eq('tenant_id', tid);
+    await supabase.from('suppliers').delete().eq('tenant_id', tid);
+    await supabase.from('customers').delete().eq('tenant_id', tid);
+
+    const { error: auditErr3 } = await supabase.from('tenant_settings_audit').insert({
+      tenant_id: tid,
+      user_id: req.userId,
+      action: 'delete_data',
+      details: {},
+    });
+    if (auditErr3) { /* audit optional */ }
+    const { data: tenant } = await supabase.from('tenants').select(tenantFields).eq('id', tid).single();
+    return res.json({ tenant: tenant || null, deleted: true });
   } catch (err) {
     next(err);
   }

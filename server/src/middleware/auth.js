@@ -89,7 +89,7 @@ export async function authMiddleware(req, res, next) {
 
   const { data: userRow, error } = await supabase
     .from('users')
-    .select('id, tenant_id')
+    .select('id, tenant_id, role')
     .eq('auth_id', authId)
     .single();
 
@@ -100,6 +100,7 @@ export async function authMiddleware(req, res, next) {
   req.authId = authId;
   req.tenantId = userRow.tenant_id;
   req.userId = userRow.id;
+  req.userRole = (userRow.role === 'owner' || userRow.role === 'staff') ? userRow.role : 'owner';
   next();
 }
 

@@ -1,13 +1,46 @@
 import { useState, useEffect } from 'react';
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { getBusinessConfig } from '../config/businessTypes';
+import ModuleGuard from './ModuleGuard';
+
+const DEFAULT_MODULES = { invoices: true, purchaseBills: true, suppliers: true, customers: true, products: true, reports: true, dashboard: true };
 
 export default function Layout() {
-  const { tenant, logout } = useAuth();
+  const { tenant, user, logout } = useAuth();
+  const canAccessSettings = user?.role === 'owner' || user?.role === undefined;
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
-  const showFab = location.pathname === '/invoices';
+
+  const config = getBusinessConfig(tenant?.business_type ?? null, tenant?.feature_config ?? null);
+  const modules = { ...DEFAULT_MODULES, ...(config.modules && typeof config.modules === 'object' ? config.modules : {}) };
+  const appTitle = (config.appTitle ?? '').toString().trim();
+  const headerLabel = appTitle || tenant?.name || 'Billing';
+  const navOrder = Array.isArray(config.navOrder) && config.navOrder.length ? config.navOrder : ['dashboard', 'invoices', 'products', 'customers', 'suppliers', 'purchaseBills', 'reports'];
+  const homeTarget = config.homeTarget === 'invoices' ? 'invoices' : 'dashboard';
+  const homeHref = homeTarget === 'invoices' ? '/invoices' : '/';
+  const primaryColor = (config.primaryColor ?? '').toString().trim();
+  const primaryColorHover = (config.primaryColorHover ?? primaryColor).toString().trim();
+  const faviconUrl = (config.faviconUrl ?? '').toString().trim();
+  const accentStyle = primaryColor ? { '--accent': primaryColor, '--accent-hover': primaryColorHover || primaryColor } : undefined;
+
+  const showFab = modules.invoices !== false && location.pathname === '/invoices';
+
+  // Apply tenant favicon when set
+  useEffect(() => {
+    let link = document.querySelector('link[rel="icon"]');
+    if (faviconUrl) {
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.head.appendChild(link);
+      }
+      link.href = faviconUrl;
+    } else if (link) {
+      link.href = '/favicon.ico';
+    }
+  }, [faviconUrl]);
 
   // close menu on route change
   useEffect(() => {
@@ -36,11 +69,12 @@ export default function Layout() {
   }
 
   return (
-    <div className="layout">
+    <div className="layout" style={accentStyle}>
       <header className="layout__header">
         <div className="layout__brand">
-          <Link to="/">Billing</Link>
-          {tenant && <span className="layout__tenant">— {tenant.name}</span>}
+          <Link to={homeHref}>{headerLabel}</Link>
+          {tenant && !appTitle && <span className="layout__tenant">— {tenant.name}</span>}
+          {tenant && appTitle && tenant.name && tenant.name !== appTitle && <span className="layout__tenant">— {tenant.name}</span>}
         </div>
 
         {/* Hamburger — mobile only */}
@@ -60,22 +94,66 @@ export default function Layout() {
         {menuOpen && <div className="layout__overlay" onClick={() => setMenuOpen(false)} />}
 
         <nav className={`layout__nav${menuOpen ? ' layout__nav--open' : ''}`} aria-label="Main navigation">
-          <div className="layout__nav-group">
-            <Link to="/products">Products</Link>
-            <Link to="/customers">Customers</Link>
-            <Link to="/invoices">Invoices</Link>
-            <Link to="/invoices/new" className="layout__nav-cta btn btn--primary btn--sm">
-              New invoice
-            </Link>
-          </div>
-          <div className="layout__nav-group">
-            <Link to="/suppliers">Suppliers</Link>
-            <Link to="/purchase-bills">Purchase bills</Link>
-          </div>
-          <div className="layout__nav-group">
-            <Link to="/reports">Reports</Link>
-            <Link to="/settings">Settings</Link>
-          </div>
+          {navOrder.map((id) => {
+            if (id === 'dashboard' && modules.dashboard !== false) {
+              return (
+                <div key="dashboard" className="layout__nav-group">
+                  <Link to="/">Dashboard</Link>
+                </div>
+              );
+            }
+            if (id === 'invoices' && modules.invoices !== false) {
+              return (
+                <div key="invoices" className="layout__nav-group">
+                  <Link to="/invoices">Invoices</Link>
+                  <Link to="/invoices/new" className="layout__nav-cta btn btn--primary btn--sm">
+                    New invoice
+                  </Link>
+                </div>
+              );
+            }
+            if (id === 'products' && modules.products !== false) {
+              return (
+                <div key="products" className="layout__nav-group">
+                  <Link to="/products">Products</Link>
+                </div>
+              );
+            }
+            if (id === 'customers' && modules.customers !== false) {
+              return (
+                <div key="customers" className="layout__nav-group">
+                  <Link to="/customers">Customers</Link>
+                </div>
+              );
+            }
+            if (id === 'suppliers' && modules.suppliers !== false) {
+              return (
+                <div key="suppliers" className="layout__nav-group">
+                  <Link to="/suppliers">Suppliers</Link>
+                </div>
+              );
+            }
+            if (id === 'purchaseBills' && modules.purchaseBills !== false) {
+              return (
+                <div key="purchaseBills" className="layout__nav-group">
+                  <Link to="/purchase-bills">Purchase bills</Link>
+                </div>
+              );
+            }
+            if (id === 'reports' && modules.reports !== false) {
+              return (
+                <div key="reports" className="layout__nav-group">
+                  <Link to="/reports">Reports</Link>
+                </div>
+              );
+            }
+            return null;
+          })}
+          {canAccessSettings && (
+            <div className="layout__nav-group">
+              <Link to="/settings">Settings</Link>
+            </div>
+          )}
           <div className="layout__nav-group layout__nav-group--end">
             <button type="button" className="btn btn--ghost btn--sm" onClick={handleLogout}>
               Log out
@@ -84,7 +162,9 @@ export default function Layout() {
         </nav>
       </header>
       <main className="layout__main">
-        <Outlet />
+        <ModuleGuard>
+          <Outlet />
+        </ModuleGuard>
       </main>
 
       {/* Floating "New invoice" on mobile when on Invoices */}

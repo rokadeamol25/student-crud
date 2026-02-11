@@ -185,7 +185,8 @@ export default function Products() {
         if (!Number.isNaN(ppNum) && ppNum >= 0) payload.purchase_price = ppNum;
       }
       for (const col of extraCols) {
-        const v = (addFields[col] ?? '').toString().trim();
+        const raw = col === 'unit' ? (addFields[col] ?? config.defaultUnit ?? '') : (addFields[col] ?? '');
+        const v = raw.toString().trim();
         if (col === 'tax_percent') {
           const n = parseFloat(v);
           if (v && !Number.isNaN(n)) payload[col] = n;
@@ -378,7 +379,7 @@ export default function Products() {
             <FieldInput
               key={col}
               col={col}
-              value={addFields[col] ?? ''}
+              value={addFields[col] ?? (col === 'unit' ? (config.defaultUnit ?? '') : '')}
               onChange={(e) => setAddField(col, e.target.value)}
               picklistCols={picklistCols}
             />

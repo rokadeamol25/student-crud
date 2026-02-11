@@ -1,0 +1,161 @@
+================================================================================
+SETTINGS IMPROVEMENT PLAN (MULTI-TENANT, FEATURE-CONTROLLABLE)
+================================================================================
+
+1. WHAT'S WRONG OR MISSING TODAY
+--------------------------------------------------------------------------------
+
+Structure & UX
+- Single Save: One big form; no per-section save or "unsaved changes" hint, so risk of losing edits.
+- No search: Hard to find a specific setting when the list grows.
+- Dense "Products & invoices" tab: Product form, product list, invoice line items, search methods, rough bill, picklists all in one tab; heavy for new tenants.
+- Reset is vague: "Reset to defaults" only resets column toggles; no explanation of what "defaults" are or per-section reset.
+
+Multi-tenant / white-label gaps
+- No feature toggles: Invoices, Purchase bills, Suppliers, Reports, Dashboard are always on; no way to hide modules per tenant.
+- No nav control: Sidebar/nav is fixed; can't reorder or hide links from Settings.
+- Branding is limited: Logo + header/footer notes only; no primary color, app/shop title in header, or favicon.
+- Slug is read-only: No way to change or see implications of tenant slug (e.g. future public URLs).
+
+Product & invoicing
+- No default values: e.g. default tax %, default discount type, default unit for new products.
+- No stock/inventory policy: Can't choose "warn only" vs "block" when quantity > stock, or "allow negative stock".
+- Invoice behaviour: No settings for default due days, default status (draft vs send), or mandatory fields (e.g. always require customer).
+- Purchase bills: No settings for default payment terms or required fields; behaviour is hardcoded.
+
+Reports & data
+- Reports not configurable: Which reports appear (P&L, Stock, etc.) and default date range aren't controlled from Settings.
+- No data/export: No retention, export, or "download my data" from Settings.
+
+Account & security
+- No account section: Profile (name, email, password change) and session/security (e.g. "log out other devices") not in Settings.
+- No audit: No "who changed what when" for Settings or critical actions.
+
+Discoverability
+- No onboarding: No "recommended for your business" or short descriptions of what each block does.
+- No tooltips/help: Many options lack "why would I change this?".
+
+
+2. WHAT TO ADD (BY AREA)
+--------------------------------------------------------------------------------
+
+A. Feature toggles (modules)
+- Enable/disable per tenant: Invoices, Purchase bills, Suppliers, Customers, Products, Reports, Dashboard.
+- Nav reflects toggles: Sidebar and "New invoice" etc. show only enabled modules; routes redirect if a module is off.
+- Stored in: feature_config.modules (e.g. { invoices: true, purchaseBills: true, suppliers: true, reports: true, dashboard: true }).
+
+B. Navigation & layout
+- Nav order: Optional list of module order (e.g. Invoices first, then Products, then Customers) so each tenant can match their workflow.
+- Optional: "Home" target (Dashboard vs Invoices list).
+- Optional: Custom label for "Invoices" (e.g. "Bills", "Sales") — stored in Settings, used in nav and page titles.
+
+C. Branding (white-label)
+- App/shop title: Override "Billing" in header (e.g. "Kiran Store" or "Acme Billing").
+- Primary/accent color: Theme color for buttons and links.
+- Favicon: Optional tenant favicon.
+- Already there: Logo, header/footer notes, page size — keep; consider "Invoice title" (word next to logo, e.g. "TAX INVOICE" vs "INVOICE").
+
+D. Shop & identity
+- Keep: Name, address, phone, slug (read-only with short explanation).
+- Add: Timezone (for "today", due dates, reports); optional secondary phone/email; optional "Legal name" (if different from display name for invoices).
+
+E. Products
+- Keep: Default tracking type, product form fields, product list columns, picklists.
+- Add: Default unit for new products; default "show stock on invoice form" (on/off); optional "Require product on every invoice line" (yes/no).
+
+F. Invoicing
+- Keep: Currency, symbol, GSTIN, tax %, prefix, next number, line item columns, product/customer search method, rough bill ref, branding.
+- Add: Default due days (e.g. 0, 7, 30); default discount type (none / % / flat) and value; "Allow negative stock" or "Warn only" vs "Block" when qty > stock; optional "Require customer" and "Require at least one line"; invoice title label ("Invoice" vs "Tax Invoice" vs "Bill").
+
+G. Purchase bills
+- Add: Default payment terms (e.g. due days); which fields are required; optional "Require supplier" and "Require at least one line"; same search-method idea as customers (dropdown vs typeahead) if not shared.
+
+H. Reports
+- Add: Toggle which reports are visible (P&L, Stock, etc.); default report period (this month, last month, this quarter); default date range presets.
+
+I. Stock & inventory
+- Add: Policy: "Allow negative stock" / "Warn when negative" / "Block sale when insufficient stock"; whether to show stock on invoice form (you added this in UI; make it a setting if needed); low-stock threshold (optional, for future alerts).
+
+J. Account & security (optional section)
+- Add: Profile (display name, email); change password; "Log out all other sessions"; optional 2FA later.
+- Note: Some of this may live in Auth (Supabase); Settings can link to it or host a thin "Account" tab.
+
+K. Data & privacy
+- Add: "Export my data" (invoices, products, customers in CSV/JSON); short "Data retention" or "How we store data" text; link to terms/privacy if you have them.
+
+L. Danger zone
+- Keep: Reset column toggles (and rename to "Reset product & invoice column choices").
+- Add (with strong warnings): "Reset invoice numbering" (set next number back to 1); "Delete all data" (or "Request account deletion") with confirmation and possibly support flow.
+
+M. UX improvements
+- Per-section save or dirty state: Either "Save" per tab/section or a single Save with "You have unsaved changes" and confirm on leave.
+- Search: Simple text search over setting labels/descriptions (especially once the list grows).
+- Short descriptions: One line under each subsection ("This controls …").
+- Recommended presets: e.g. "Retail", "Services", "Mobile shop" that apply a bundle of settings and explain what they do.
+
+
+3. SUGGESTED GROUPING OF SETTINGS (TABS/SECTIONS)
+--------------------------------------------------------------------------------
+
+1.  Shop — Name, address, phone, slug, timezone, legal name, app title.
+2.  Branding — Logo, primary color, favicon, invoice header/footer notes, page size, invoice title label.
+3.  Features — Module toggles (Invoices, Purchase bills, Suppliers, Reports, Dashboard), nav order, "Home" page.
+4.  Products — Default tracking type, product form fields, product list columns, picklists, default unit, "show stock when invoicing".
+5.  Invoicing — Currency, tax, numbering, line item columns, search methods, rough bill, default due days, discount defaults, stock policy (warn/block/allow negative), required fields, invoice label.
+6.  Purchase bills — Search method, default terms, required fields (if different from invoices).
+7.  Reports — Which reports to show, default period/date range.
+8.  Account — Profile, password, sessions (or links to auth).
+9.  Data — Export, retention/explanation.
+10. Reset / Danger — Reset column choices, reset numbering, delete data.
+
+You can merge 5+6 into "Invoicing & purchase" and 8+9 into "Account & data" if you want fewer tabs.
+
+
+4. IMPLEMENTATION PRIORITY (PHASED)
+--------------------------------------------------------------------------------
+
+Phase 1 – Quick wins
+- Feature toggles (modules) + nav hiding.
+- App/shop title in header.
+- Default due days and invoice title label.
+- Stock policy (allow / warn / block) from Settings.
+- Per-section short descriptions and "unsaved changes" (or at least one clear Save + confirmation).
+
+Phase 2 – White-label & behaviour
+- Primary color (and optionally favicon).
+- Default discount, default unit for products.
+- Purchase-bill defaults (terms, required fields).
+- Report toggles and default period.
+
+Phase 3 – Control & trust
+- Nav order and "Home" target.
+- Account tab (profile, password, sessions).
+- Data export and danger zone (reset numbering, delete data).
+- Optional audit log for Settings changes.
+
+Phase 4 – Polish
+- Search in Settings.
+- Presets ("Retail", "Services", etc.).
+- Timezone and legal name.
+- Optional onboarding tips in Settings.
+
+
+5. BACKEND / DATA MODEL (FOR THE PLAN)
+--------------------------------------------------------------------------------
+
+- Existing: tenant (name, address, currency, invoice_*, etc.) and feature_config (JSON) in DB.
+- Extend feature_config (or tenant columns) for: modules, navOrder, appTitle, primaryColor, defaultDueDays, invoiceTitleLabel, stockPolicy, defaultUnit, defaultDiscount*, reportToggles, defaultReportPeriod, etc.
+- API: Keep single PATCH /api/me (or similar) that accepts tenant + feature_config; add validation for new keys and enums (e.g. stockPolicy: 'allow' | 'warn' | 'block').
+- Auth: If account/profile lives in Supabase, either mirror minimal profile in your API or have Settings "Account" tab call Supabase and only store tenant-level things in your backend.
+
+
+6. ONE-LINE SUMMARY
+--------------------------------------------------------------------------------
+
+Current problems: Single big form, no module toggles, no nav control, limited branding, no stock/invoice/purchase defaults, no account/data/danger in Settings.
+
+Target: Most behaviour and visibility (which modules, what's in nav, how invoicing and stock and reports work) and branding (title, color, logo) controllable from Settings, with clear sections, safe defaults, and a phased rollout (feature toggles + stock + branding first, then defaults and reports, then account/data and danger zone).
+
+================================================================================
+End of plan
+================================================================================

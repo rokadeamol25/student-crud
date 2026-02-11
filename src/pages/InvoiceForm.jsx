@@ -37,8 +37,6 @@ function SerialSelect({ productId, value, onChange, className = '' }) {
   );
 }
 
-const emptyItem = () => ({ productId: '', description: '', quantity: 1, unitPrice: 0, discountType: 'none', discountValue: 0, selectedSerialId: '' });
-
 function TrackingBadge({ type }) {
   const t = type || 'quantity';
   const colors = { quantity: 'badge--draft', serial: 'badge--sent', batch: 'badge--paid' };
@@ -95,8 +93,13 @@ export default function InvoiceForm() {
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const { invoiceProductSearch, invoiceLineItems, customerSupplierSearch, showRoughBillRef: showRoughBillRefEnabled } = useBusinessConfig();
+  const { invoiceProductSearch, invoiceLineItems, customerSupplierSearch, showRoughBillRef: showRoughBillRefEnabled, stockPolicy, defaultDiscountType, defaultDiscountValue } = useBusinessConfig();
   const isTypeahead = invoiceProductSearch.method === 'typeahead';
+  const getEmptyItem = () => ({
+    productId: '', description: '', quantity: 1, unitPrice: 0, selectedSerialId: '',
+    discountType: (defaultDiscountType === 'percent' || defaultDiscountType === 'flat') ? defaultDiscountType : 'none',
+    discountValue: Math.max(0, Number(defaultDiscountValue) || 0),
+  });
   const isCustomerTypeahead = (customerSupplierSearch?.method ?? 'dropdown') === 'typeahead';
   const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
 
@@ -125,7 +128,7 @@ export default function InvoiceForm() {
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [roughBillRef, setRoughBillRef] = useState('');
   const [gstType, setGstType] = useState('intra');
-  const [items, setItems] = useState([emptyItem()]);
+  const [items, setItems] = useState(() => [getEmptyItem()]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -162,7 +165,7 @@ export default function InvoiceForm() {
           setGstType(inv.gst_type === 'inter' ? 'inter' : 'intra');
           setRoughBillRef(inv.rough_bill_ref || '');
           const invItems = inv.invoice_items || [];
-          setItems(invItems.length ? invItems.map(itemFromRow) : [emptyItem()]);
+          setItems(invItems.length ? invItems.map(itemFromRow) : [getEmptyItem()]);
         } else if (!isEdit && !isCustomerTypeahead && c.length) {
           setCustomerId(c[0].id);
         }
@@ -259,7 +262,7 @@ export default function InvoiceForm() {
   }
 
   function addLine() {
-    setItems((prev) => [...prev, emptyItem()]);
+    setItems((prev) => [...prev, getEmptyItem()]);
   }
 
   function updateLine(i, field, value) {
@@ -352,6 +355,21 @@ export default function InvoiceForm() {
     if (isCustomerTypeahead && !customerId) {
       setError('Please select a customer');
       return;
+    }
+    if (stockPolicy === 'block') {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (!it.productId) continue;
+        const product = products.find((p) => p.id === it.productId);
+        if (product && product.stock != null && product.stock !== '') {
+          const stock = Number(product.stock) || 0;
+          const qty = Number(it.quantity) || 0;
+          if (qty > stock) {
+            setError(`Quantity exceeds available stock for "${product.name}" (available: ${stock}). Reduce quantity or change stock policy in Settings.`);
+            return;
+          }
+        }
+      }
     }
     setError('');
     setSubmitting(true);

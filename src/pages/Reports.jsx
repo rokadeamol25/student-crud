@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useBusinessConfig } from '../hooks/useBusinessConfig';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import ErrorWithRetry from '../components/ErrorWithRetry';
@@ -15,6 +16,27 @@ const PERIODS = [
     const d = new Date();
     return { from: new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString().slice(0, 10), to: new Date(d.getFullYear(), d.getMonth(), 0).toISOString().slice(0, 10) };
   }},
+  { id: 'this_quarter', label: 'This quarter', getRange: () => {
+    const d = new Date();
+    const q = Math.floor(d.getMonth() / 3) + 1;
+    return { from: new Date(d.getFullYear(), (q - 1) * 3, 1).toISOString().slice(0, 10), to: new Date(d.getFullYear(), q * 3, 0).toISOString().slice(0, 10) };
+  }},
+  { id: 'last_quarter', label: 'Last quarter', getRange: () => {
+    const d = new Date();
+    const q = Math.floor(d.getMonth() / 3) + 1;
+    const lastQ = q === 1 ? 4 : q - 1;
+    const y = q === 1 ? d.getFullYear() - 1 : d.getFullYear();
+    return { from: new Date(y, (lastQ - 1) * 3, 1).toISOString().slice(0, 10), to: new Date(y, lastQ * 3, 0).toISOString().slice(0, 10) };
+  }},
+  { id: 'this_year', label: 'This year', getRange: () => {
+    const d = new Date();
+    return { from: new Date(d.getFullYear(), 0, 1).toISOString().slice(0, 10), to: new Date(d.getFullYear(), 11, 31).toISOString().slice(0, 10) };
+  }},
+  { id: 'last_year', label: 'Last year', getRange: () => {
+    const d = new Date();
+    const y = d.getFullYear() - 1;
+    return { from: new Date(y, 0, 1).toISOString().slice(0, 10), to: new Date(y, 11, 31).toISOString().slice(0, 10) };
+  }},
   { id: 'last_7', label: 'Last 7 days', getRange: () => {
     const to = new Date();
     const from = new Date(to);
@@ -25,8 +47,10 @@ const PERIODS = [
 ];
 
 export default function Reports() {
-  const { token, tenant } = useAuth();
-  const [periodId, setPeriodId] = useState('this_month');
+  const { token } = useAuth();
+  const { reportToggles = { pnl: true, stock: true }, defaultReportPeriod = 'this_month' } = useBusinessConfig();
+  const validPeriod = PERIODS.some((p) => p.id === defaultReportPeriod) ? defaultReportPeriod : 'this_month';
+  const [periodId, setPeriodId] = useState(validPeriod);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [sales, setSales] = useState(null);
@@ -105,10 +129,12 @@ export default function Reports() {
     <div className="page">
       <h1 className="page__title">Reports</h1>
       <p className="page__subtitle">Sales, products, customers, tax, and revenue trend.</p>
-      <p style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <Link to="/reports/pnl" className="btn btn--secondary btn--sm">P&L Summary</Link>
-        <Link to="/reports/stock" className="btn btn--secondary btn--sm">Stock report</Link>
-      </p>
+      {(reportToggles.pnl || reportToggles.stock) && (
+        <p style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {reportToggles.pnl && <Link to="/reports/pnl" className="btn btn--secondary btn--sm">P&L Summary</Link>}
+          {reportToggles.stock && <Link to="/reports/stock" className="btn btn--secondary btn--sm">Stock report</Link>}
+        </p>
+      )}
 
       <div className="page__toolbar reports-toolbar">
         <label className="form__label" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

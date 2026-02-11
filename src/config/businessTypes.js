@@ -5,6 +5,33 @@
  */
 
 export const DEFAULTS = {
+  // Feature toggles: which modules appear in nav (default all on)
+  modules: {
+    invoices: true,
+    purchaseBills: true,
+    suppliers: true,
+    customers: true,
+    products: true,
+    reports: true,
+    dashboard: true,
+  },
+  appTitle: '', // override "Billing" in header when set
+  defaultDueDays: 0, // days from invoice date for due date (0 = no default)
+  invoiceTitleLabel: 'Invoice', // e.g. "Invoice", "Tax Invoice", "Bill"
+  stockPolicy: 'warn', // 'allow' | 'warn' | 'block' when qty > stock on invoice
+  primaryColor: '', // hex e.g. #0d9488; when set, overrides --accent in app
+  primaryColorHover: '', // optional; when empty, derived from primaryColor
+  faviconUrl: '', // optional tenant favicon URL
+  defaultDiscountType: 'none', // 'none' | 'percent' | 'flat' for new invoice lines
+  defaultDiscountValue: 0,
+  defaultUnit: 'pcs', // default unit for new products when unit field is shown
+  purchaseBillDefaultDueDays: 0, // default due days for purchase bills (for display/future use)
+  reportToggles: { pnl: true, stock: true }, // which report links to show
+  defaultReportPeriod: 'this_month', // initial period on Reports page
+  navOrder: ['dashboard', 'invoices', 'products', 'customers', 'suppliers', 'purchaseBills', 'reports'], // order of nav items (enabled ones only)
+  homeTarget: 'dashboard', // 'dashboard' | 'invoices' — where the app logo/title link goes
+  timezone: '', // IANA timezone e.g. Asia/Kolkata; for dates and "today"
+  legalName: '', // legal name on invoices if different from shop name
   // productForm and invoiceLineItems are now dynamic objects
   // keyed by DB column name → boolean. Defaults are applied at runtime
   // from the columns endpoint. These are fallback defaults for known columns.
@@ -96,6 +123,20 @@ export const INVOICE_COLS_BY_TRACKING_TYPE = {
 };
 
 /** Options for the Settings dropdown (value, label, short description). */
+/** Default order of nav items (used in Settings and Layout). */
+export const NAV_ORDER_DEFAULT = ['dashboard', 'invoices', 'products', 'customers', 'suppliers', 'purchaseBills', 'reports'];
+
+/** Labels for nav order / Home target in Settings. */
+export const NAV_MODULE_LABELS = {
+  dashboard: 'Dashboard',
+  invoices: 'Invoices',
+  products: 'Products',
+  customers: 'Customers',
+  suppliers: 'Suppliers',
+  purchaseBills: 'Purchase bills',
+  reports: 'Reports',
+};
+
 export const BUSINESS_TYPE_OPTIONS = [
   { value: '', label: 'Default', description: 'All product fields (Unit, HSN/SAC, Tax %). Product picker: dropdown.' },
   { value: 'retail', label: 'Retail', description: 'Product form: Name, Price, Unit only. Invoice: search products as you type.' },

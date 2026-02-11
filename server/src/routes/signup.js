@@ -97,6 +97,7 @@ router.post('/complete', async (req, res, next) => {
         auth_id: authId,
         tenant_id: tenant.id,
         email,
+        role: 'owner',
       })
       .select('id, email')
       .single();

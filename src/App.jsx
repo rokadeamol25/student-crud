@@ -22,6 +22,7 @@ import Invoices from './pages/Invoices';
 import InvoiceForm from './pages/InvoiceForm';
 import InvoicePrint from './pages/InvoicePrint';
 import Settings from './pages/Settings';
+import SettingsGuard from './components/SettingsGuard';
 import Reports from './pages/Reports';
 import ReportsPnl from './pages/ReportsPnl';
 import ReportsStock from './pages/ReportsStock';
@@ -82,7 +83,7 @@ export default function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="reports/pnl" element={<ReportsPnl />} />
             <Route path="reports/stock" element={<ReportsStock />} />
-            <Route path="settings" element={<Settings />} />
+            <Route path="settings" element={<SettingsGuard><Settings /></SettingsGuard>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

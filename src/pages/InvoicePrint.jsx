@@ -21,7 +21,8 @@ export default function InvoicePrint() {
   const navigate = useNavigate();
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
-  const { invoiceLineItems, showRoughBillRef: showRoughBillRefEnabled } = useBusinessConfig();
+  const { invoiceLineItems, showRoughBillRef: showRoughBillRefEnabled, invoiceTitleLabel, legalName } = useBusinessConfig();
+  const invoiceTitle = (invoiceTitleLabel || 'Invoice').toString().trim().toUpperCase() || 'INVOICE';
   const defaultTrackingType = tenant?.feature_config?.defaultTrackingType || 'quantity';
   const extraInvCols = (() => {
     const allowed = INVOICE_COLS_BY_TRACKING_TYPE[defaultTrackingType];
@@ -380,7 +381,7 @@ export default function InvoicePrint() {
               <img src={tenant.logo_url} alt="" className="invoice-print__logo" />
             )}
             <div>
-              <h1 className="invoice-print__shop">{tenant?.name || 'Shop'}</h1>
+              <h1 className="invoice-print__shop">{(legalName && legalName.trim()) ? legalName.trim() : (tenant?.name || 'Shop')}</h1>
               {tenant?.gstin && <p className="invoice-print__meta">GSTIN: {tenant.gstin}</p>}
               {tenant?.address && <p className="invoice-print__meta">{tenant.address}</p>}
               {tenant?.phone && <p className="invoice-print__meta">{tenant.phone}</p>}
@@ -388,7 +389,7 @@ export default function InvoicePrint() {
           </div>
           <div className="invoice-print__header-right">
             <h2 className="invoice-print__title">
-              INVOICE <span className="invoice-print__invoice-number">{invoice.invoice_number}</span>
+              {invoiceTitle} <span className="invoice-print__invoice-number">{invoice.invoice_number}</span>
             </h2>
             <p className="invoice-print__header-detail"><span>Date:</span> <strong>{formatDatePrint(invoice.invoice_date)}</strong></p>
           </div>
