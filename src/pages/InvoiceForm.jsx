@@ -45,12 +45,21 @@ function TrackingBadge({ type }) {
   return <span className={`badge ${colors[t] || ''}`} style={{ fontSize: '0.7rem' }}>{t}</span>;
 }
 
+function stockDisplay(p) {
+  const stock = Number(p.stock) ?? 0;
+  const unit = (p.unit || '').toString().trim();
+  if (!unit) return String(stock);
+  return `${stock} · ${unit}`;
+}
+
 function productLabelFn(p, fmt, tenant) {
   const parts = [p.name];
   if (p.company) parts.push(p.company);
   if (p.ram_storage) parts.push(p.ram_storage);
   if (p.color) parts.push(p.color);
-  return parts.join(' | ') + ' — ' + fmt(p.price, tenant);
+  let label = parts.join(' | ') + ' — ' + fmt(p.price, tenant);
+  if (p.stock != null && p.stock !== '') label += ' · Stock: ' + stockDisplay(p);
+  return label;
 }
 
 function itemFromRow(row) {
@@ -524,7 +533,12 @@ export default function InvoiceForm() {
                           <span key={col} className="typeahead-results__meta"> · {p[col]}</span>
                         ) : null)}
                       </span>
-                      <span className="typeahead-results__price">{formatMoney(p.price, tenant)}</span>
+                      <span className="typeahead-results__price">
+                        {formatMoney(p.price, tenant)}
+                        {p.stock != null && p.stock !== '' && (
+                          <span className="typeahead-results__meta" style={{ marginLeft: '0.5rem' }}>Stock: {stockDisplay(p)}</span>
+                        )}
+                      </span>
                     </button>
                   </li>
                 ))}
@@ -562,8 +576,11 @@ export default function InvoiceForm() {
                 ) : null)}
               <div className="invoice-item-card__row">
                 <label className="form__label" style={{ flex: 1 }}>
-                  <span>Qty</span>
+                  <span>Qty{product && product.stock != null && product.stock !== '' ? ` (Available: ${stockDisplay(product)})` : ''}</span>
                   <input type="number" min="0.01" step="0.01" className="form__input form__input--number" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
+                  {product && product.stock != null && product.stock !== '' && Number(it.quantity) > Number(product.stock) && (
+                    <p className="form__error-inline invoice-form__stock-warning" role="alert">Quantity exceeds available stock</p>
+                  )}
                 </label>
                 <label className="form__label" style={{ flex: 1 }}>
                   <span>Unit price</span>
@@ -646,7 +663,15 @@ export default function InvoiceForm() {
                       </td>
                       {extraInvCols.map((col) => <td key={col}>{it[col] || '—'}</td>)}
                       <td>
-                        <input type="number" min="0.01" step="0.01" className="form__input form__input--sm form__input--narrow form__input--number" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
+                        <div>
+                          <input type="number" min="0.01" step="0.01" className="form__input form__input--sm form__input--narrow form__input--number" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
+                          {product && product.stock != null && product.stock !== '' && (
+                            <span className="page__muted" style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.125rem' }}>Available: {stockDisplay(product)}</span>
+                          )}
+                          {product && product.stock != null && product.stock !== '' && Number(it.quantity) > Number(product.stock) && (
+                            <p className="form__error-inline invoice-form__stock-warning" style={{ marginTop: '0.25rem', marginBottom: 0 }} role="alert">Exceeds stock</p>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <input type="number" min="0" step="0.01" className="form__input form__input--sm form__input--narrow form__input--number" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
