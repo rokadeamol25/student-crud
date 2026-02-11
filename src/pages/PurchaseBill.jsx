@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ErrorWithRetry from '../components/ErrorWithRetry';
 import ListSkeleton from '../components/ListSkeleton';
 
 const emptyItem = () => ({ product_id: '', quantity: 1, purchase_price: 0 });
@@ -71,7 +72,7 @@ export default function PurchaseBill() {
           setEditForm(null);
         }
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message || "We couldn't load the bill. Check your connection and try again."));
   }, [token, id]);
 
   useEffect(() => {
@@ -291,7 +292,7 @@ export default function PurchaseBill() {
     return (
       <div className="page">
         <h1 className="page__title">Purchase bill</h1>
-        <p className="page__error">{error || 'Bill not found'}</p>
+        <ErrorWithRetry message={error || "We couldn't load the bill. Check your connection and try again."} onRetry={() => { setError(''); setLoading(true); fetchBill().finally(() => setLoading(false)); }} />
         <Link to="/purchase-bills" className="btn btn--secondary">Back to Purchase bills</Link>
       </div>
     );
@@ -367,12 +368,12 @@ export default function PurchaseBill() {
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Product</th>
-                    <th>Type</th>
-                    <th>Quantity</th>
-                    <th>Purchase price</th>
-                    <th>Amount</th>
-                    <th></th>
+                    <th scope="col">Product</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Quantity</th>
+                    <th scope="col">Purchase price</th>
+                    <th scope="col">Amount</th>
+                    <th scope="col"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -399,7 +400,7 @@ export default function PurchaseBill() {
                           type="number"
                           min="0.01"
                           step="0.01"
-                          className="form__input form__input--sm form__input--narrow"
+                          className="form__input form__input--sm form__input--narrow form__input--number"
                           value={it.quantity}
                           onChange={(e) => updateEditLine(i, 'quantity', e.target.value)}
                         />
@@ -409,7 +410,7 @@ export default function PurchaseBill() {
                           type="number"
                           min="0"
                           step="0.01"
-                          className="form__input form__input--sm form__input--narrow"
+                          className="form__input form__input--sm form__input--narrow form__input--number"
                           value={it.purchase_price}
                           onChange={(e) => updateEditLine(i, 'purchase_price', e.target.value)}
                         />
@@ -496,11 +497,11 @@ export default function PurchaseBill() {
             <table className="table" style={{ marginBottom: '0.75rem' }}>
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Method</th>
-                  <th>Amount</th>
-                  <th>Reference</th>
-                  <th></th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Reference</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
@@ -619,7 +620,7 @@ export default function PurchaseBill() {
                   type="number"
                   min="0"
                   step="0.01"
-                  className="form__input"
+                  className="form__input form__input--number"
                   value={paymentForm.amount}
                   onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))}
                   required

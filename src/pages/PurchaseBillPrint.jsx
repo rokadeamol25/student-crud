@@ -164,7 +164,7 @@ export default function PurchaseBillPrint() {
       <div className="invoice-print-actions no-print" style={{ marginBottom: '1rem' }}>
         <Link to={`/purchase-bills/${id}`} className="btn btn--secondary">← Back to bill</Link>
         <span style={{ marginLeft: '0.5rem' }}>
-          Status: <span className={`badge badge--${bill.status === 'draft' ? 'draft' : bill.status === 'recorded' ? 'sent' : 'paid'}`}>{bill.status}</span>
+          Status: <span className={`badge badge--${bill.status === 'draft' ? 'draft' : bill.status === 'recorded' ? 'sent' : 'paid'}`} role="status" aria-label={`Status: ${bill.status}`}>{bill.status}</span>
         </span>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
           <button type="button" className="btn btn--primary" onClick={() => window.print()}>
@@ -210,7 +210,7 @@ export default function PurchaseBillPrint() {
             <p><span className="invoice-print__detail-label">Bill No:</span> {bill.bill_number}</p>
             <p><span className="invoice-print__detail-label">Date:</span> {formatDatePrint(bill.bill_date)}</p>
             {bill.status && (
-              <p><span className="invoice-print__detail-label">Status:</span> <span className={`badge badge--${bill.status === 'draft' ? 'draft' : bill.status === 'recorded' ? 'sent' : 'paid'}`}>{bill.status}</span></p>
+              <p><span className="invoice-print__detail-label">Status:</span> <span className={`badge badge--${bill.status === 'draft' ? 'draft' : bill.status === 'recorded' ? 'sent' : 'paid'}`} role="status" aria-label={`Status: ${bill.status}`}>{bill.status}</span></p>
             )}
           </div>
         </div>
@@ -220,14 +220,14 @@ export default function PurchaseBillPrint() {
           <table className="purchase-bill-print__table invoice-print__table">
             <thead>
               <tr>
-                <th className="col-num">#</th>
-                <th>Product</th>
-                {hasSerial && <th>Serial / IMEI</th>}
-                {hasBatch && <th>Batch</th>}
-                {extraCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
-                <th className="col-right">Qty</th>
-                <th className="col-right">Unit Price</th>
-                <th className="col-right">Amount</th>
+                <th scope="col" className="col-num">#</th>
+                <th scope="col">Product</th>
+                {hasSerial && <th scope="col">Serial / IMEI</th>}
+                {hasBatch && <th scope="col">Batch</th>}
+                {extraCols.map((col) => <th scope="col" key={col}>{columnLabel(col)}</th>)}
+                <th scope="col" className="col-right">Qty</th>
+                <th scope="col" className="col-right">Unit Price</th>
+                <th scope="col" className="col-right">Amount</th>
               </tr>
             </thead>
             <tbody>

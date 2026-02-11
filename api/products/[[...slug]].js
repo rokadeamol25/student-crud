@@ -114,7 +114,11 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'GET') {
-      let q = supabase.from('products').select('*', { count: 'exact' }).eq('tenant_id', tenantId).order('name');
+      const sortCol = (req.query?.sort ?? 'name').toString().trim();
+      const allowedSort = ['name', 'price', 'created_at', 'tracking_type'];
+      const orderCol = allowedSort.includes(sortCol) ? sortCol : 'name';
+      const orderDir = (req.query?.order ?? 'asc').toString().toLowerCase() === 'desc' ? false : true;
+      let q = supabase.from('products').select('*', { count: 'exact' }).eq('tenant_id', tenantId).order(orderCol, { ascending: orderDir });
       const search = (req.query?.q ?? '').toString().trim();
       if (search) q = q.ilike('name', `%${search}%`);
       const productTypeFilter = (req.query?.product_type ?? '').toString().trim();

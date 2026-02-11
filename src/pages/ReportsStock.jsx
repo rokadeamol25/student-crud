@@ -4,6 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useBusinessConfig } from '../hooks/useBusinessConfig';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ErrorWithRetry from '../components/ErrorWithRetry';
+import ListSkeleton from '../components/ListSkeleton';
 
 const TRACKING_LABELS = { quantity: 'Quantity', serial: 'Serial', batch: 'Batch' };
 const STOCK_LIMIT = 1000;
@@ -28,7 +30,7 @@ export default function ReportsStock() {
         const data = Array.isArray(res) ? res : (res?.data ?? []);
         setProducts(data);
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e.message || "We couldn't load stock. Check your connection and try again."))
       .finally(() => setLoading(false));
   }, [token, productTypeFilter]);
 
@@ -44,14 +46,17 @@ export default function ReportsStock() {
 
   const totalUnits = products.reduce((sum, p) => sum + (Number(p.stock) || 0), 0);
 
-  if (loading && products.length === 0) {
+  if (loading && products.length === 0 && !error) {
     return (
       <div className="page">
         <div className="page__toolbar" style={{ marginBottom: '1rem' }}>
           <Link to="/reports" className="btn btn--ghost btn--sm">← Reports</Link>
         </div>
         <h1 className="page__title">Stock report</h1>
-        <p className="page__muted">Loading…</p>
+        <p className="page__subtitle">Current inventory by product.</p>
+        <section className="card page__section">
+          <ListSkeleton rows={6} columns={5} />
+        </section>
       </div>
     );
   }
@@ -82,7 +87,7 @@ export default function ReportsStock() {
         {productTypeOptions?.length > 0 && ' Use the filter above to show a specific product type (from Settings).'}
       </p>
 
-      {error && <div className="page__error">{error}</div>}
+      {error && <ErrorWithRetry message={error} onRetry={fetchStock} />}
 
       <section className="card page__section">
         <div className="report-cards report-cards--inline" style={{ marginBottom: '1rem' }}>
@@ -107,15 +112,15 @@ export default function ReportsStock() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Product</th>
-                  {productTypeOptions?.length > 0 && <th>Product type</th>}
-                  <th>SKU</th>
-                  <th>Company</th>
-                  <th>Tracking</th>
-                  <th>Stock</th>
-                  <th>Unit</th>
-                  <th className="col-right">Unit cost</th>
-                  <th className="col-right">Value</th>
+                  <th scope="col">Product</th>
+                  {productTypeOptions?.length > 0 && <th scope="col">Product type</th>}
+                  <th scope="col">SKU</th>
+                  <th scope="col">Company</th>
+                  <th scope="col">Tracking</th>
+                  <th scope="col">Stock</th>
+                  <th scope="col">Unit</th>
+                  <th scope="col" className="col-right">Unit cost</th>
+                  <th scope="col" className="col-right">Value</th>
                 </tr>
               </thead>
               <tbody>

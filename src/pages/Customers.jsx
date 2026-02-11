@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import EmptyState from '../components/EmptyState';
+import ErrorWithRetry from '../components/ErrorWithRetry';
 import ListSkeleton from '../components/ListSkeleton';
 
 const PAGE_SIZE = 20;
@@ -42,7 +43,7 @@ export default function Customers() {
         setList(data);
         setTotal(tot);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message || "We couldn't load customers. Check your connection and try again."));
   }, [token, search, page]);
 
   useEffect(() => {
@@ -121,7 +122,7 @@ export default function Customers() {
           className="form__input page__search"
         />
       </div>
-      {error && <div className="page__error">{error}</div>}
+      {error && <ErrorWithRetry message={error} onRetry={() => { setError(''); setLoading(true); fetchList().finally(() => setLoading(false)); }} />}
       <section className="card page__section" ref={addFormRef}>
         <h2 className="card__heading">Add customer</h2>
         <form onSubmit={handleAdd} className="form form--grid">
@@ -155,7 +156,7 @@ export default function Customers() {
         ) : list.length === 0 ? (
           <EmptyState
             title="No customers yet"
-            description="Add customers to bill on invoices."
+            description="Add your first customer to bill on invoices."
             actionLabel="Add customer"
             onAction={() => addFormRef.current?.scrollIntoView?.({ behavior: 'smooth' })}
           />
@@ -164,10 +165,10 @@ export default function Customers() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Phone</th>
-                  <th></th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Phone</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>

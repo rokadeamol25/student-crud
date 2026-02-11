@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ErrorWithRetry from '../components/ErrorWithRetry';
 
 const PRESETS = [
   { id: 'this_month', label: 'This month', getRange: () => {
@@ -127,7 +128,7 @@ export default function ReportsPnl() {
         </button>
       </div>
 
-      {error && <div className="page__error">{error}</div>}
+      {error && <ErrorWithRetry message={error} onRetry={fetchPnl} />}
 
       {!queryFrom || !queryTo ? (
         <section className="card page__section">
@@ -135,7 +136,14 @@ export default function ReportsPnl() {
         </section>
       ) : loading && !data ? (
         <section className="card page__section">
-          <p className="page__muted">Loading…</p>
+          <div className="report-cards" style={{ marginBottom: '1rem' }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="report-card">
+                <span className="skeleton skeleton--text" style={{ width: '50%', height: '0.875rem' }} />
+                <span className="skeleton skeleton--text" style={{ width: '70%', height: '1.25rem' }} />
+              </div>
+            ))}
+          </div>
         </section>
       ) : data ? (
         <section className="card page__section">

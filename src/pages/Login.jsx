@@ -91,7 +91,7 @@ export default function Login() {
     <div className="auth-page">
       <div className="auth-card">
         <h1 className="auth-card__title">Log in</h1>
-        <p className="auth-card__subtitle">Sign in to Tulja Billing</p>
+        <p className="auth-card__subtitle">Sign in to your account</p>
         <form onSubmit={handleSubmit} className="auth-form">
           {error && <div className="auth-form__error">{error}</div>}
           <label className="auth-form__label">

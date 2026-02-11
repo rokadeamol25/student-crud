@@ -5,6 +5,7 @@ import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import EmptyState from '../components/EmptyState';
+import ErrorWithRetry from '../components/ErrorWithRetry';
 import ListSkeleton from '../components/ListSkeleton';
 
 const STATUS_OPTIONS = [
@@ -49,7 +50,7 @@ export default function PurchaseBills() {
         setList(data);
         setTotal(res?.total ?? data.length);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message || "We couldn't load purchase bills. Check your connection and try again."));
   }, [token, supplierFilter, statusFilter, page]);
 
   useEffect(() => {
@@ -124,14 +125,14 @@ export default function PurchaseBills() {
           New purchase bill
         </Link>
       </div>
-      {error && <div className="page__error">{error}</div>}
+      {error && <ErrorWithRetry message={error} onRetry={() => { setError(''); setLoading(true); fetchList().finally(() => setLoading(false)); }} />}
       <section className="card page__section">
         {loading ? (
           <ListSkeleton rows={6} columns={5} />
         ) : list.length === 0 ? (
           <EmptyState
-            title="No purchase bills"
-            description="Create a purchase bill to record stock and track supplier payments."
+            title="No purchase bills yet"
+            description="Create your first purchase bill to record stock and track supplier payments."
             actionLabel="New purchase bill"
             onAction={() => navigate('/purchase-bills/new')}
           />
@@ -140,13 +141,13 @@ export default function PurchaseBills() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Supplier</th>
-                  <th>Bill #</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th>Total</th>
-                  <th>Balance</th>
-                  <th></th>
+                  <th scope="col">Supplier</th>
+                  <th scope="col">Bill #</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Total</th>
+                  <th scope="col">Balance</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>

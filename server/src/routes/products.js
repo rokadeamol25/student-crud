@@ -82,11 +82,15 @@ router.post('/', async (req, res, next) => {
 
 router.get('/', async (req, res, next) => {
   try {
+    const sortCol = (req.query?.sort ?? 'name').toString().trim();
+    const allowedSort = ['name', 'price', 'created_at', 'tracking_type'];
+    const orderCol = allowedSort.includes(sortCol) ? sortCol : 'name';
+    const orderDir = (req.query?.order ?? 'asc').toString().toLowerCase() === 'desc' ? false : true;
     let q = supabase
       .from('products')
       .select('*', { count: 'exact' })
       .eq('tenant_id', req.tenantId)
-      .order('name');
+      .order(orderCol, { ascending: orderDir });
     // Filter inactive by default unless explicitly requested
     if (req.query?.include_inactive !== 'true') {
       q = q.eq('is_active', true);

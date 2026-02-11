@@ -17,11 +17,11 @@ export default function InvoiceListSkeleton() {
           <table className="table">
             <thead>
               <tr>
-                <th><span className="skeleton skeleton--text" /></th>
-                <th><span className="skeleton skeleton--text" /></th>
-                <th><span className="skeleton skeleton--text" /></th>
-                <th><span className="skeleton skeleton--text" /></th>
-                <th><span className="skeleton skeleton--short" /></th>
+                <th scope="col"><span className="skeleton skeleton--text" /></th>
+                <th scope="col"><span className="skeleton skeleton--text" /></th>
+                <th scope="col"><span className="skeleton skeleton--text" /></th>
+                <th scope="col"><span className="skeleton skeleton--text" /></th>
+                <th scope="col"><span className="skeleton skeleton--short" /></th>
               </tr>
             </thead>
             <tbody>

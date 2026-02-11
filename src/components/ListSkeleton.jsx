@@ -10,7 +10,7 @@ export default function ListSkeleton({ rows = 6, columns = 4 }) {
           <thead>
             <tr>
               {Array.from({ length: columns }, (_, i) => (
-                <th key={i}><span className="skeleton skeleton--text" /></th>
+                <th scope="col" key={i}><span className="skeleton skeleton--text" /></th>
               ))}
             </tr>
           </thead>

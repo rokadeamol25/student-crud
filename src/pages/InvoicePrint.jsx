@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useBusinessConfig } from '../hooks/useBusinessConfig';
@@ -8,6 +8,8 @@ import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
 import { amountInWords, formatDatePrint } from '../lib/amountInWords';
 import html2pdf from 'html2pdf.js';
+import ErrorWithRetry from '../components/ErrorWithRetry';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 /**
  * Clean view / print page for an invoice.
@@ -16,6 +18,7 @@ import html2pdf from 'html2pdf.js';
  */
 export default function InvoicePrint() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { token, tenant } = useAuth();
   const { showToast } = useToast();
   const { invoiceLineItems, showRoughBillRef: showRoughBillRefEnabled } = useBusinessConfig();
@@ -38,12 +41,15 @@ export default function InvoicePrint() {
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentForm, setPaymentForm] = useState({ amount: '', payment_method: 'cash', reference: '', paid_at: new Date().toISOString().slice(0, 10) });
   const [deletingPaymentId, setDeletingPaymentId] = useState(null);
+  const [statusUpdating, setStatusUpdating] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchInvoice = useCallback(() => {
     if (!token || !id) return;
     return api.get(token, `/api/invoices/${id}`)
       .then(setInvoice)
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message || "We couldn't load the invoice. Check your connection and try again."));
   }, [token, id]);
 
   useEffect(() => {
@@ -215,12 +221,52 @@ export default function InvoicePrint() {
     }
   }
 
-  if (loading) return <div className="page"><p className="page__muted">Loading invoice…</p></div>;
+  async function handleStatusUpdate(newStatus) {
+    if (!token || !invoice) return;
+    setStatusUpdating(true);
+    try {
+      await api.patch(token, `/api/invoices/${invoice.id}`, { status: newStatus });
+      showToast(newStatus === 'sent' ? 'Marked as sent' : 'Marked as paid', 'success');
+      await fetchInvoice();
+    } catch (e) {
+      showToast(e?.message || 'Failed to update', 'error');
+    } finally {
+      setStatusUpdating(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!token || !invoice) return;
+    setDeleting(true);
+    try {
+      await api.del(token, `/api/invoices/${invoice.id}`);
+      showToast('Invoice deleted', 'success');
+      setDeleteConfirmOpen(false);
+      navigate('/invoices');
+    } catch (e) {
+      showToast(e?.message || 'Failed to delete', 'error');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  if (loading && !invoice) {
+    return (
+      <div className="page">
+        <p className="page__subtitle" style={{ marginBottom: '1rem' }}><Link to="/invoices" className="btn btn--ghost btn--sm">Back to list</Link></p>
+        <div className="card page__section">
+          <div className="skeleton skeleton--text" style={{ width: '50%', height: '1.5rem', marginBottom: '1rem' }} />
+          <div className="skeleton skeleton--text" style={{ width: '70%', height: '1rem' }} />
+          <div className="skeleton skeleton--text" style={{ width: '40%', height: '1rem', marginTop: '0.5rem' }} />
+        </div>
+      </div>
+    );
+  }
   if (error || !invoice) {
     return (
       <div className="page">
-        <p className="page__error">{error || 'Invoice not found'}</p>
-        <Link to="/invoices">Back to invoices</Link>
+        <ErrorWithRetry message={error || "We couldn't load the invoice. Check your connection and try again."} onRetry={() => { setError(''); setLoading(true); fetchInvoice().finally(() => setLoading(false)); }} />
+        <p style={{ marginTop: '1rem' }}><Link to="/invoices" className="btn btn--secondary">Back to list</Link></p>
       </div>
     );
   }
@@ -229,27 +275,48 @@ export default function InvoicePrint() {
   const items = invoice.invoice_items || [];
   const hasSerial = items.some((row) => row.serials && row.serials.length > 0);
 
+  const canEdit = invoice.status !== 'paid';
+
   return (
     <div className="invoice-print-wrap">
       <div className="invoice-print-actions no-print">
-        <Link to="/invoices" className="btn btn--secondary">← Invoices</Link>
-        <span className="invoice-print__status-label" style={{ marginLeft: '0.5rem' }}>
-          Status: <span className={`badge badge--${invoice.status}`}>{invoice.status}</span>
-        </span>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-          {invoice.status !== 'paid' && (
-            <Link to={`/invoices/${id}/edit`} className="btn btn--secondary">Edit</Link>
+        <div className="invoice-print-actions__nav">
+          <Link to="/invoices" className="btn btn--ghost btn--sm">Back to list</Link>
+          {canEdit && (
+            <Link to={`/invoices/${id}/edit`} className="btn btn--ghost btn--sm">Back to invoice</Link>
           )}
-          <button type="button" className="btn btn--primary" onClick={() => window.print()}>
+        </div>
+        <div className="invoice-print-actions__primary">
+          <button type="button" className="btn btn--primary" onClick={() => window.print()} aria-label="Print invoice">
             Print
           </button>
-          <button type="button" className="btn btn--secondary" onClick={handleDownloadPdf} disabled={pdfGenerating}>
+          <button type="button" className="btn btn--secondary" onClick={handleDownloadPdf} disabled={pdfGenerating} aria-label="Download PDF">
             {pdfGenerating ? 'Generating…' : 'Download PDF'}
           </button>
         </div>
+        <div className="invoice-print-actions__secondary">
+          <span className="invoice-print__status-label" role="status">
+            Status: <span className={`badge badge--${invoice.status}`} aria-label={`Status: ${invoice.status}`}>{invoice.status}</span>
+          </span>
+          {invoice.status === 'draft' && (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleStatusUpdate('sent')} disabled={statusUpdating}>
+              Mark sent
+            </button>
+          )}
+          {(invoice.status === 'draft' || invoice.status === 'sent') && (
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => handleStatusUpdate('paid')} disabled={statusUpdating}>
+              Mark paid
+            </button>
+          )}
+          {canEdit && (
+            <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => setDeleteConfirmOpen(true)}>
+              Delete
+            </button>
+          )}
+        </div>
         {/* Payments section */}
         <div className="invoice-print__payments no-print" style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', width: '100%' }}>
-          <h3 className="card__subheading" style={{ marginBottom: '0.5rem' }}>Payments</h3>
+          <h3 className="card__subheading">Payments</h3>
           {(() => {
             const amtPaid = Number(invoice?.amount_paid) ?? 0;
             const invoiceTotal = Number(invoice?.total) ?? 0;
@@ -271,11 +338,11 @@ export default function InvoicePrint() {
                   <table className="invoice-print__payments-table table" style={{ marginBottom: '0.75rem', fontSize: '0.875rem' }}>
                     <thead>
                       <tr>
-                        <th>Date</th>
-                        <th>Method</th>
-                        <th>Amount</th>
-                        <th>Reference</th>
-                        <th></th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Method</th>
+                        <th scope="col">Amount</th>
+                        <th scope="col">Reference</th>
+                        <th scope="col"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -320,8 +387,9 @@ export default function InvoicePrint() {
             </div>
           </div>
           <div className="invoice-print__header-right">
-            <h2 className="invoice-print__title">INVOICE</h2>
-            <p className="invoice-print__header-detail"><span>No:</span> <strong>{invoice.invoice_number}</strong></p>
+            <h2 className="invoice-print__title">
+              INVOICE <span className="invoice-print__invoice-number">{invoice.invoice_number}</span>
+            </h2>
             <p className="invoice-print__header-detail"><span>Date:</span> <strong>{formatDatePrint(invoice.invoice_date)}</strong></p>
           </div>
         </header>
@@ -345,7 +413,7 @@ export default function InvoicePrint() {
             <p><span className="invoice-print__detail-label">Date:</span> {formatDatePrint(invoice.invoice_date)}</p>
             {invoice.due_date && <p><span className="invoice-print__detail-label">Due:</span> {formatDatePrint(invoice.due_date)}</p>}
             {invoice.status && invoice.status !== 'paid' && (
-              <p><span className="invoice-print__detail-label">Status:</span> <span className={`badge badge--${invoice.status}`}>{invoice.status}</span></p>
+              <p><span className="invoice-print__detail-label">Status:</span> <span className={`badge badge--${invoice.status}`} role="status" aria-label={`Status: ${invoice.status}`}>{invoice.status}</span></p>
             )}
             {showRoughBillRefEnabled && invoice.rough_bill_ref && (
               <p className="no-print"><span className="invoice-print__detail-label">Rough bill ref:</span> {invoice.rough_bill_ref}</p>
@@ -358,14 +426,14 @@ export default function InvoicePrint() {
           <table className="invoice-print__table">
             <thead>
               <tr>
-                <th className="col-num">#</th>
-                <th>Description</th>
-                {hasSerial && <th>Serial / IMEI</th>}
-                {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
-                <th className="col-right">Qty</th>
-                <th className="col-right">Unit Price</th>
-                <th className="col-right">Disc</th>
-                <th className="col-right">Amount</th>
+                <th scope="col" className="col-num">#</th>
+                <th scope="col">Description</th>
+                {hasSerial && <th scope="col">Serial / IMEI</th>}
+                {extraInvCols.map((col) => <th scope="col" key={col}>{columnLabel(col)}</th>)}
+                <th scope="col" className="col-right">Qty</th>
+                <th scope="col" className="col-right">Unit Price</th>
+                <th scope="col" className="col-right">Disc</th>
+                <th scope="col" className="col-right">Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -459,7 +527,7 @@ export default function InvoicePrint() {
                     type="number"
                     min="0"
                     step="0.01"
-                    className="form__input"
+                    className="form__input form__input--number"
                     value={paymentForm.amount}
                     onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))}
                     required
@@ -509,6 +577,18 @@ export default function InvoicePrint() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Delete invoice"
+        message={invoice ? `Delete invoice ${invoice.invoice_number}? This can't be undone.` : ''}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteConfirmOpen(false)}
+      />
     </div>
   );
 }

@@ -280,7 +280,7 @@ export default function CreatePurchaseBill() {
             />
           </label>
         </div>
-        <h3 className="card__subheading" style={{ marginTop: '1rem' }}>Items</h3>
+        <h3 className="card__subheading">Items</h3>
         {hasSerialOrBatch && (
           <p className="page__muted" style={{ marginBottom: '0.5rem', fontSize: '0.875rem' }}>
             Some products are Serial or Batch — after creating the bill, open it and click Record to enter serial numbers or batch/expiry.
@@ -290,12 +290,12 @@ export default function CreatePurchaseBill() {
           <table className="table">
             <thead>
               <tr>
-                <th>Product</th>
-                <th>Type</th>
-                <th>Quantity</th>
-                <th>Purchase price</th>
-                <th>Amount</th>
-                <th></th>
+                <th scope="col">Product</th>
+                <th scope="col">Type</th>
+                <th scope="col">Quantity</th>
+                <th scope="col">Purchase price</th>
+                <th scope="col">Amount</th>
+                <th scope="col"></th>
               </tr>
             </thead>
             <tbody>
@@ -322,7 +322,7 @@ export default function CreatePurchaseBill() {
                       type="number"
                       min="0.01"
                       step="0.01"
-                      className="form__input form__input--sm form__input--narrow"
+                      className="form__input form__input--sm form__input--narrow form__input--number"
                       value={it.quantity}
                       onChange={(e) => updateLine(i, 'quantity', e.target.value)}
                     />
@@ -332,7 +332,7 @@ export default function CreatePurchaseBill() {
                       type="number"
                       min="0"
                       step="0.01"
-                      className="form__input form__input--sm form__input--narrow"
+                      className="form__input form__input--sm form__input--narrow form__input--number"
                       value={it.purchase_price}
                       onChange={(e) => updateLine(i, 'purchase_price', e.target.value)}
                     />

@@ -1,10 +1,11 @@
-import { useEffect, useState, useMemo, Fragment } from 'react';
+import { useEffect, useState, useMemo, useCallback, Fragment } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useBusinessConfig } from '../hooks/useBusinessConfig';
 import { columnLabel, PRODUCT_COLS_BY_TRACKING_TYPE } from '../config/businessTypes';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ErrorWithRetry from '../components/ErrorWithRetry';
 
 export default function ProductDetail() {
   const { id } = useParams();
@@ -24,15 +25,19 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
+  const fetchProduct = useCallback(() => {
     if (!token || !id) return;
     setLoading(true);
     setError('');
-    api.get(token, `/api/products/${id}`)
+    return api.get(token, `/api/products/${id}`)
       .then((data) => setProduct(data))
-      .catch((e) => setError(e.message || 'Failed to load product'))
+      .catch((e) => setError(e.message || "We couldn't load the product. Check your connection and try again."))
       .finally(() => setLoading(false));
   }, [token, id]);
+
+  useEffect(() => {
+    fetchProduct();
+  }, [fetchProduct]);
 
   function formatValue(p, col) {
     const v = p[col];
@@ -41,10 +46,15 @@ export default function ProductDetail() {
     return String(v);
   }
 
-  if (loading) {
+  if (loading && !product) {
     return (
       <div className="page">
-        <p className="page__muted">Loading…</p>
+        <p className="page__subtitle" style={{ marginBottom: '1rem' }}><Link to="/products" className="btn btn--ghost btn--sm">← Products</Link></p>
+        <div className="card page__section">
+          <div className="skeleton skeleton--text" style={{ width: '40%', height: '1.5rem', marginBottom: '1rem' }} />
+          <div className="skeleton skeleton--text" style={{ width: '60%', height: '1rem' }} />
+          <div className="skeleton skeleton--text" style={{ width: '30%', height: '1rem', marginTop: '0.5rem' }} />
+        </div>
       </div>
     );
   }
@@ -52,8 +62,8 @@ export default function ProductDetail() {
   if (error || !product) {
     return (
       <div className="page">
-        <div className="page__error">{error || 'Product not found'}</div>
-        <p>
+        <ErrorWithRetry message={error || "We couldn't load the product. Check your connection and try again."} onRetry={fetchProduct} />
+        <p style={{ marginTop: '1rem' }}>
           <Link to="/products" className="btn btn--secondary">Back to products</Link>
         </p>
       </div>

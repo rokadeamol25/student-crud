@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import EmptyState from '../components/EmptyState';
+import ErrorWithRetry from '../components/ErrorWithRetry';
 import ListSkeleton from '../components/ListSkeleton';
 
 const PAGE_SIZE = 20;
@@ -45,7 +46,7 @@ export default function Suppliers() {
         setList(data);
         setTotal(tot);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message || "We couldn't load suppliers. Check your connection and try again."));
   }, [token, search, page]);
 
   useEffect(() => {
@@ -152,7 +153,7 @@ export default function Suppliers() {
           className="form__input page__search"
         />
       </div>
-      {error && <div className="page__error">{error}</div>}
+      {error && <ErrorWithRetry message={error} onRetry={() => { setError(''); setLoading(true); fetchList().finally(() => setLoading(false)); }} />}
       <section className="card page__section" ref={addFormRef}>
         <h2 className="card__heading">Add supplier</h2>
         <form onSubmit={handleAdd} className="form form--grid">
@@ -186,7 +187,7 @@ export default function Suppliers() {
         ) : list.length === 0 ? (
           <EmptyState
             title="No suppliers yet"
-            description="Add suppliers to record purchase bills."
+            description="Add your first supplier to record purchase bills."
             actionLabel="Add supplier"
             onAction={() => addFormRef.current?.scrollIntoView?.({ behavior: 'smooth' })}
           />
@@ -195,10 +196,10 @@ export default function Suppliers() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Phone</th>
-                  <th></th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Email</th>
+                  <th scope="col">Phone</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>

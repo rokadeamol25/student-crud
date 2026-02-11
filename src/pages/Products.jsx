@@ -10,6 +10,9 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import EmptyState from '../components/EmptyState';
 import ListSkeleton from '../components/ListSkeleton';
 import Pagination from '../components/Pagination';
+import ActionsDropdown from '../components/ActionsDropdown';
+import ErrorWithRetry from '../components/ErrorWithRetry';
+import { IconSortAsc, IconSortDesc, IconSortNone } from '../components/Icons';
 
 const PAGE_SIZE = 20;
 
@@ -29,7 +32,7 @@ function FieldInput({ col, value, onChange, placeholder, className = 'form__inpu
     );
   }
   if (NUMBER_COLS.has(col)) {
-    return <input type="number" step="0.01" min="0" max="100" className={className} placeholder={placeholder || columnLabel(col)} value={value} onChange={onChange} />;
+    return <input type="number" step="0.01" min="0" max="100" className={`${className} form__input--number`} placeholder={placeholder || columnLabel(col)} value={value} onChange={onChange} />;
   }
   return <input className={className} placeholder={placeholder || columnLabel(col)} value={value} onChange={onChange} maxLength={200} />;
 }
@@ -90,6 +93,8 @@ export default function Products() {
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [trackingFilter, setTrackingFilter] = useState(''); // '' = all, 'quantity' | 'serial' | 'batch'
+  const [sortBy, setSortBy] = useState('name');
+  const [sortOrder, setSortOrder] = useState('asc');
   const [page, setPage] = useState(0);
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
@@ -110,6 +115,8 @@ export default function Products() {
     const params = new URLSearchParams();
     if (search) params.set('q', search);
     if (trackingFilter) params.set('tracking_type', trackingFilter);
+    params.set('sort', sortBy);
+    params.set('order', sortOrder);
     params.set('limit', String(PAGE_SIZE));
     params.set('offset', String(page * PAGE_SIZE));
     return api.get(token, `/api/products?${params.toString()}`)
@@ -119,14 +126,45 @@ export default function Products() {
         setList(data);
         setTotal(tot);
       })
-      .catch((e) => setError(e.message));
-  }, [token, search, trackingFilter, page]);
+      .catch((e) => setError(e.message || "We couldn't load products. Check your connection and try again."));
+  }, [token, search, trackingFilter, sortBy, sortOrder, page]);
 
   useEffect(() => {
     if (!token) return;
     setLoading(true);
     fetchList().finally(() => setLoading(false));
-  }, [token, search, trackingFilter, page, fetchList]);
+  }, [token, search, trackingFilter, sortBy, sortOrder, page, fetchList]);
+
+  const PRODUCT_SORT_COLUMNS = new Set(['name', 'price', 'tracking_type']);
+  function handleSort(col) {
+    if (sortBy === col) {
+      setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col);
+      setSortOrder(col === 'price' ? 'asc' : 'asc');
+    }
+    setPage(0);
+  }
+  function SortableTh({ colKey, label }) {
+    const active = sortBy === colKey;
+    return (
+      <th scope="col">
+        <button
+          type="button"
+          className="table-sort-btn"
+          onClick={() => handleSort(colKey)}
+          aria-sort={active ? (sortOrder === 'asc' ? 'ascending' : 'descending') : 'none'}
+        >
+          {label}
+          <span className="table-sort-icon">
+            {!active && <IconSortNone />}
+            {active && sortOrder === 'asc' && <IconSortAsc />}
+            {active && sortOrder === 'desc' && <IconSortDesc />}
+          </span>
+        </button>
+      </th>
+    );
+  }
 
   function setAddField(col, val) {
     setAddFields((prev) => ({ ...prev, [col]: val }));
@@ -303,7 +341,7 @@ export default function Products() {
           className="form__input page__search"
         />
       </div>
-      {error && <div className="page__error">{error}</div>}
+      {error && <ErrorWithRetry message={error} onRetry={() => { setError(''); setLoading(true); fetchList().finally(() => setLoading(false)); }} />}
       <section className="card page__section" ref={addFormRef}>
         <h2 className="card__heading" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           Add product
@@ -321,7 +359,7 @@ export default function Products() {
             type="number"
             step="0.01"
             min="0"
-            className="form__input"
+            className="form__input form__input--number"
             placeholder="Selling price"
             value={price}
             onChange={(e) => setPrice(e.target.value)}
@@ -331,7 +369,7 @@ export default function Products() {
             type="number"
             step="0.01"
             min="0"
-            className="form__input"
+            className="form__input form__input--number"
             placeholder="Purchase price (optional)"
             value={purchasePrice}
             onChange={(e) => setPurchasePrice(e.target.value)}
@@ -376,16 +414,19 @@ export default function Products() {
           />
         ) : (
           <>
-          <div className="table-wrap products-list-table-wrap">
+          <p className="table-swipe-hint" aria-live="polite">Swipe to see more columns</p>
+          <div className="table-wrap products-list-table-wrap table-wrap--sticky">
             <table className="table">
               <thead>
                 <tr>
-                  {listColumns.map((col) => (
-                    <th key={col}>
-                      {PRODUCT_LIST_CORE_COLUMNS.find((c) => c.id === col)?.label ?? columnLabel(col)}
-                    </th>
-                  ))}
-                  <th></th>
+                  {listColumns.map((col) => {
+                    const label = PRODUCT_LIST_CORE_COLUMNS.find((c) => c.id === col)?.label ?? columnLabel(col);
+                    if (PRODUCT_SORT_COLUMNS.has(col)) {
+                      return <SortableTh key={col} colKey={col} label={label} />;
+                    }
+                    return <th scope="col" key={col}>{label}</th>;
+                  })}
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
@@ -416,15 +457,14 @@ export default function Products() {
                       return <td key={col}>{formatCellValue(p, col)}</td>;
                     })}
                     <td>
-                      <span className="table-actions">
-                        <Link to={`/products/${p.id}`} className="btn btn--ghost btn--sm">View</Link>
-                        <button type="button" className="btn btn--ghost btn--sm" onClick={() => openEdit(p)}>
-                          Edit
-                        </button>
-                        <button type="button" className="btn btn--ghost btn--sm btn--danger" onClick={() => openDelete(p)}>
-                          Delete
-                        </button>
-                      </span>
+                      <ActionsDropdown
+                        items={[
+                          { label: 'View', icon: 'view', href: `/products/${p.id}` },
+                          { label: 'Edit', icon: 'edit', onClick: () => openEdit(p) },
+                          { label: 'Delete', icon: 'delete', onClick: () => openDelete(p), danger: true },
+                        ]}
+                        ariaLabel={`Actions for ${p.name}`}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -447,7 +487,7 @@ export default function Products() {
       <ConfirmDialog
         open={!!productToDelete}
         title="Delete product"
-        message={productToDelete ? `Delete "${productToDelete.name}"? This cannot be undone.` : ''}
+        message={productToDelete ? `Delete product "${productToDelete.name}"? This can't be undone.` : ''}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         danger
@@ -468,11 +508,11 @@ export default function Products() {
               </label>
               <label className="form__label">
                 <span>Selling price</span>
-                <input type="number" step="0.01" min="0" className="form__input" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} required />
+                <input type="number" step="0.01" min="0" className="form__input form__input--number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} required />
               </label>
               <label className="form__label">
                 <span>Purchase price (optional)</span>
-                <input type="number" step="0.01" min="0" className="form__input" placeholder="Default when purchasing" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} />
+                <input type="number" step="0.01" min="0" className="form__input form__input--number" placeholder="Default when purchasing" value={editPurchasePrice} onChange={(e) => setEditPurchasePrice(e.target.value)} />
               </label>
               <div className="form__label">
                 <span>Type</span>
@@ -511,16 +551,16 @@ export default function Products() {
                 <table className="table" style={{ fontSize: '0.8125rem' }}>
                   <thead>
                     <tr>
-                      <th>Serial Number</th>
-                      <th>Status</th>
-                      <th>Cost</th>
+                      <th scope="col">Serial Number</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Cost</th>
                     </tr>
                   </thead>
                   <tbody>
                     {viewData.map((s) => (
                       <tr key={s.id}>
                         <td style={{ fontFamily: 'monospace' }}>{s.serial_number}</td>
-                        <td><span className={`badge badge--${s.status === 'available' ? 'sent' : 'draft'}`}>{s.status}</span></td>
+                        <td><span className={`badge badge--${s.status === 'available' ? 'sent' : 'draft'}`} role="status" aria-label={`Serial status: ${s.status}`}>{s.status}</span></td>
                         <td>{s.cost_price != null ? formatMoney(s.cost_price, tenant) : '—'}</td>
                       </tr>
                     ))}
@@ -532,10 +572,10 @@ export default function Products() {
                 <table className="table" style={{ fontSize: '0.8125rem' }}>
                   <thead>
                     <tr>
-                      <th>Batch #</th>
-                      <th>Expiry</th>
-                      <th>Qty</th>
-                      <th>Cost</th>
+                      <th scope="col">Batch #</th>
+                      <th scope="col">Expiry</th>
+                      <th scope="col">Qty</th>
+                      <th scope="col">Cost</th>
                     </tr>
                   </thead>
                   <tbody>

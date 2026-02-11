@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ErrorWithRetry from '../components/ErrorWithRetry';
+import ListSkeleton from '../components/ListSkeleton';
 
 const PERIODS = [
   { id: 'this_month', label: 'This month', getRange: () => {
@@ -68,7 +70,7 @@ export default function Reports() {
         setRevenueTrend(r);
         setProductProfit(pp);
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e.message || "We couldn't load reports. Check your connection and try again."))
       .finally(() => setLoading(false));
   }, [token, hasRange, queryFrom, queryTo]);
 
@@ -76,10 +78,25 @@ export default function Reports() {
     fetchAll();
   }, [fetchAll]);
 
-  if (loading && !invoiceSummary) {
+  if (loading && !invoiceSummary && !error) {
     return (
       <div className="page">
-        <p className="page__muted">Loading reports…</p>
+        <h1 className="page__title">Reports</h1>
+        <p className="page__subtitle">Sales, products, customers, tax, and revenue trend.</p>
+        <div className="card page__section">
+          <h2 className="card__heading">Summary</h2>
+          <div className="report-cards">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="report-card">
+                <span className="skeleton skeleton--text" style={{ width: '60%', height: '0.875rem' }} />
+                <span className="skeleton skeleton--text" style={{ width: '80%', height: '1.25rem' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card page__section">
+          <ListSkeleton rows={4} columns={3} />
+        </div>
       </div>
     );
   }
@@ -118,7 +135,7 @@ export default function Reports() {
         <button type="button" className="btn btn--secondary" onClick={fetchAll}>Refresh</button>
       </div>
 
-      {error && <div className="page__error">{error}</div>}
+      {error && <ErrorWithRetry message={error} onRetry={fetchAll} />}
 
       {/* Sales summary */}
       <section className="card page__section">
@@ -166,11 +183,11 @@ export default function Reports() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Number</th>
-                  <th>Date</th>
-                  <th>Customer</th>
-                  <th>Total</th>
-                  <th></th>
+                  <th scope="col">Number</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Customer</th>
+                  <th scope="col">Total</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
@@ -199,9 +216,9 @@ export default function Reports() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Product</th>
-                  <th>Quantity sold</th>
-                  <th>Revenue</th>
+                  <th scope="col">Product</th>
+                  <th scope="col">Quantity sold</th>
+                  <th scope="col">Revenue</th>
                 </tr>
               </thead>
               <tbody>
@@ -228,11 +245,11 @@ export default function Reports() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Product</th>
-                  <th>Qty sold</th>
-                  <th>Sales</th>
-                  <th>Cost</th>
-                  <th>Profit</th>
+                  <th scope="col">Product</th>
+                  <th scope="col">Qty sold</th>
+                  <th scope="col">Sales</th>
+                  <th scope="col">Cost</th>
+                  <th scope="col">Profit</th>
                 </tr>
               </thead>
               <tbody>
@@ -261,9 +278,9 @@ export default function Reports() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Customer</th>
-                  <th>Invoices</th>
-                  <th>Total paid</th>
+                  <th scope="col">Customer</th>
+                  <th scope="col">Invoices</th>
+                  <th scope="col">Total paid</th>
                 </tr>
               </thead>
               <tbody>
@@ -298,11 +315,11 @@ export default function Reports() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Month</th>
-                      <th>CGST</th>
-                      <th>SGST</th>
-                      <th>IGST</th>
-                      <th>Total tax</th>
+                      <th scope="col">Month</th>
+                      <th scope="col">CGST</th>
+                      <th scope="col">SGST</th>
+                      <th scope="col">IGST</th>
+                      <th scope="col">Total tax</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -319,11 +336,11 @@ export default function Reports() {
                   {taxSummary.totals && (
                     <tfoot>
                       <tr>
-                        <th>Total</th>
-                        <th>{formatMoney(taxSummary.totals.cgst, tenant)}</th>
-                        <th>{formatMoney(taxSummary.totals.sgst, tenant)}</th>
-                        <th>{formatMoney(taxSummary.totals.igst, tenant)}</th>
-                        <th>{formatMoney(taxSummary.totals.totalTax, tenant)}</th>
+                        <th scope="row">Total</th>
+                        <td>{formatMoney(taxSummary.totals.cgst, tenant)}</td>
+                        <td>{formatMoney(taxSummary.totals.sgst, tenant)}</td>
+                        <td>{formatMoney(taxSummary.totals.igst, tenant)}</td>
+                        <td>{formatMoney(taxSummary.totals.totalTax, tenant)}</td>
                       </tr>
                     </tfoot>
                   )}
@@ -362,7 +379,7 @@ export default function Reports() {
             <div className="table-wrap" style={{ marginTop: '1rem' }}>
               <table className="table">
                 <thead>
-                  <tr><th>Month</th><th>Revenue</th></tr>
+                  <tr><th scope="col">Month</th><th scope="col">Revenue</th></tr>
                 </thead>
                 <tbody>
                   {revenueTrend.data.map((row) => (

@@ -303,7 +303,7 @@ router.post('/', async (req, res, next) => {
     const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
     const discountTotal = Math.round(items.reduce((s, i) => s + (i.discount_amount || 0), 0) * 100) / 100;
     const taxAmount = Math.round(items.reduce((s, i) => s + i.cgst_amount + i.sgst_amount + i.igst_amount, 0) * 100) / 100;
-    const total = Math.round((subtotal + taxAmount) * 100) / 100;
+    const total = Math.round(subtotal + taxAmount);
     const effectiveTaxPercent = subtotal > 0 ? Math.round(taxAmount / subtotal * 10000) / 100 : tenantTaxPercent;
     let { invoiceNumber, nextNumber } = await getNextInvoiceNumber(req.tenantId);
 
@@ -430,11 +430,15 @@ router.get('/', async (req, res, next) => {
       res.setHeader('Content-Disposition', 'attachment; filename="invoices.csv"');
       return res.send(csv);
     }
+    const sortCol = (req.query?.sort ?? 'created_at').toString().trim();
+    const allowedSort = ['invoice_date', 'invoice_number', 'total', 'status', 'created_at'];
+    const orderCol = allowedSort.includes(sortCol) ? sortCol : 'created_at';
+    const orderDir = (req.query?.order ?? 'desc').toString().toLowerCase() === 'asc' ? true : false;
     let q = supabase
       .from('invoices')
       .select('*', { count: 'exact' })
       .eq('tenant_id', req.tenantId)
-      .order('created_at', { ascending: false });
+      .order(orderCol, { ascending: orderDir });
     const status = (req.query?.status ?? '').toString().trim();
     if (status) q = q.eq('status', status);
     const customerId = (req.query?.customerId ?? '').toString().trim();
@@ -702,7 +706,7 @@ router.patch('/:id', async (req, res, next) => {
       }
       const subtotal = Math.round(items.reduce((s, i) => s + i.amount, 0) * 100) / 100;
       const taxAmount = Math.round(items.reduce((s, i) => s + i.cgst_amount + i.sgst_amount + i.igst_amount, 0) * 100) / 100;
-      const total = Math.round((subtotal + taxAmount) * 100) / 100;
+      const total = Math.round(subtotal + taxAmount);
       const effectiveTaxPercent = subtotal > 0 ? Math.round(taxAmount / subtotal * 10000) / 100 : tenantTaxPercent;
 
       await supabase.from('invoice_items').delete().eq('invoice_id', id);

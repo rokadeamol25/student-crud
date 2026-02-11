@@ -302,7 +302,7 @@ export default function InvoiceForm() {
   }, 0);
   const taxPercent = tenant?.tax_percent != null ? Number(tenant.tax_percent) : 0;
   const taxAmount = Math.round(subtotal * taxPercent / 100 * 100) / 100;
-  const total = Math.round((subtotal + taxAmount) * 100) / 100;
+  const total = Math.round(subtotal + taxAmount);
 
   const hasSerialOrBatch = items.some((it) => {
     const p = products.find((pr) => pr.id === it.productId);
@@ -563,11 +563,11 @@ export default function InvoiceForm() {
               <div className="invoice-item-card__row">
                 <label className="form__label" style={{ flex: 1 }}>
                   <span>Qty</span>
-                  <input type="number" min="0.01" step="0.01" className="form__input" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
+                  <input type="number" min="0.01" step="0.01" className="form__input form__input--number" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
                 </label>
                 <label className="form__label" style={{ flex: 1 }}>
                   <span>Unit price</span>
-                  <input type="number" min="0" step="0.01" className="form__input" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
+                  <input type="number" min="0" step="0.01" className="form__input form__input--number" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
                 </label>
               </div>
               <div className="invoice-item-card__row">
@@ -585,7 +585,7 @@ export default function InvoiceForm() {
                     type="number"
                     min="0"
                     step="0.01"
-                    className="form__input"
+                    className="form__input form__input--number"
                     value={it.discountValue}
                     onChange={(e) => updateLine(i, 'discountValue', e.target.value)}
                   />
@@ -604,19 +604,20 @@ export default function InvoiceForm() {
 
         {/* Tablet+: table-based line items */}
         <div className="invoice-items-table">
+          <p className="table-swipe-hint" aria-live="polite">Swipe to see more columns</p>
           <div className="table-wrap invoice-form__table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Product (optional)</th>
-                  {(defaultTrackingType === 'serial' || hasSerialOrBatch) && <th>Serial (IMEI)</th>}
-                  <th>Description</th>
-                  {extraInvCols.map((col) => <th key={col}>{columnLabel(col)}</th>)}
-                  <th>Qty</th>
-                  <th>Unit price</th>
-                  <th>Disc</th>
-                  <th>Amount</th>
-                  <th></th>
+                  <th scope="col">Product (optional)</th>
+                  {(defaultTrackingType === 'serial' || hasSerialOrBatch) && <th scope="col">Serial (IMEI)</th>}
+                  <th scope="col">Description</th>
+                  {extraInvCols.map((col) => <th scope="col" key={col}>{columnLabel(col)}</th>)}
+                  <th scope="col">Qty</th>
+                  <th scope="col">Unit price</th>
+                  <th scope="col">Disc</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
@@ -645,10 +646,10 @@ export default function InvoiceForm() {
                       </td>
                       {extraInvCols.map((col) => <td key={col}>{it[col] || '—'}</td>)}
                       <td>
-                        <input type="number" min="0.01" step="0.01" className="form__input form__input--sm form__input--narrow" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
+                        <input type="number" min="0.01" step="0.01" className="form__input form__input--sm form__input--narrow form__input--number" value={it.quantity} onChange={(e) => updateLine(i, 'quantity', e.target.value)} />
                       </td>
                       <td>
-                        <input type="number" min="0" step="0.01" className="form__input form__input--sm form__input--narrow" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
+                        <input type="number" min="0" step="0.01" className="form__input form__input--sm form__input--narrow form__input--number" value={it.unitPrice} onChange={(e) => updateLine(i, 'unitPrice', e.target.value)} />
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
@@ -665,7 +666,7 @@ export default function InvoiceForm() {
                             type="number"
                             min="0"
                             step="0.01"
-                            className="form__input form__input--sm form__input--narrow"
+                            className="form__input form__input--sm form__input--narrow form__input--number"
                             value={it.discountValue}
                             onChange={(e) => updateLine(i, 'discountValue', e.target.value)}
                           />

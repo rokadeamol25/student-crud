@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import * as api from '../api/client';
 import { formatMoney } from '../lib/format';
+import ErrorWithRetry from '../components/ErrorWithRetry';
 import ListSkeleton from '../components/ListSkeleton';
 
 export default function SupplierLedger() {
@@ -14,15 +15,21 @@ export default function SupplierLedger() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
+  const fetchLedger = useCallback(() => {
     if (!token || !id) return;
-    api.get(token, `/api/suppliers/${id}/ledger`)
+    setError('');
+    setLoading(true);
+    return api.get(token, `/api/suppliers/${id}/ledger`)
       .then(setData)
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e.message || "We couldn't load the supplier. Check your connection and try again."))
       .finally(() => setLoading(false));
   }, [token, id]);
 
-  if (loading) {
+  useEffect(() => {
+    fetchLedger();
+  }, [fetchLedger]);
+
+  if (loading && !data) {
     return (
       <div className="page">
         <h1 className="page__title">Supplier ledger</h1>
@@ -37,8 +44,8 @@ export default function SupplierLedger() {
     return (
       <div className="page">
         <h1 className="page__title">Supplier ledger</h1>
-        <p className="page__error">{error || 'Supplier not found'}</p>
-        <Link to="/suppliers" className="btn btn--secondary">Back to Suppliers</Link>
+        <ErrorWithRetry message={error || "We couldn't load the supplier. Check your connection and try again."} onRetry={fetchLedger} />
+        <p style={{ marginTop: '1rem' }}><Link to="/suppliers" className="btn btn--secondary">Back to Suppliers</Link></p>
       </div>
     );
   }
@@ -77,13 +84,13 @@ export default function SupplierLedger() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Bill #</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th>Total</th>
-                  <th>Paid</th>
-                  <th>Balance</th>
-                  <th></th>
+                  <th scope="col">Bill #</th>
+                  <th scope="col">Date</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Total</th>
+                  <th scope="col">Paid</th>
+                  <th scope="col">Balance</th>
+                  <th scope="col"></th>
                 </tr>
               </thead>
               <tbody>
